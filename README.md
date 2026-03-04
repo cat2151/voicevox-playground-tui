@@ -1,10 +1,10 @@
 # voicevox-playground-tui
 
-Write a line, play it instantly - Zundamon at the speed of thought -
+Write a line, play it immediately - Zundamon at the speed of thought.
 
 ## Requirements
 
-- [VOICEVOX](https://voicevox.hiroshiba.jp/) 
+- [VOICEVOX](https://voicevox.hiroshiba.jp/)
 - Rust
 
 ## Installation
@@ -15,10 +15,10 @@ cargo install --force --git https://github.com/cat2151/voicevox-playground-tui
 
 ## Server
 
-To use it, start the VOICEVOX engine.
+To use it, please start the VOICEVOX engine.
 
 1. Download and install [VOICEVOX](https://voicevox.hiroshiba.jp/)
-2. Start the VOICEVOX engine (an HTTP server will launch on port 50021)
+2. Start the VOICEVOX engine (this will launch an HTTP server on port 50021)
 
 ```bash
 <your VOICEVOX directory>/vv-engine/run
@@ -30,78 +30,78 @@ To use it, start the VOICEVOX engine.
 vpt
 ```
 
-## Keybinds
+## Keybindings
 
 | Key | Action |
-|------|------|
+|-----|--------|
 | `i` | INSERT mode (edit current line) |
 | `Enter` / `Esc` | Return from INSERT mode to NORMAL mode |
-| `j` / `↓` | Move down a line → Auto-play |
-| `k` / `↑` | Move up a line → Auto-play |
-| `o` | Insert an empty line below and enter INSERT mode |
+| `j` / `↓` | Move down one line → Autoplay |
+| `k` / `↑` | Move up one line → Autoplay |
+| `o` | Insert empty line below and enter INSERT mode |
 | `dd` | Cut line |
 | `p` | Paste line |
 | `Enter` / `Space` | Manually play current line |
 | `q` | Quit (save history) |
 
-- NORMAL mode keybinds are Vim-like
-- INSERT mode keybinds are Emacs-like
+- NORMAL mode keybindings are Vim-like
+- INSERT mode keybindings are Emacs-like
 
-## Features
+## Specifications
 
-- When moving the cursor, if a cache exists, play instantly; otherwise, asynchronously fetch from VOICEVOX and auto-play upon completion.
-- History is saved/loaded to/from `C:/Users/<your-name>/AppData/Local/voicevox-playground-tui/history.txt`.
-- Cache is in-memory (disappears when the process ends).
+- When moving the cursor, if a cache exists, play immediately; otherwise, asynchronously fetch from VOICEVOX and autoplay upon completion.
+- History is saved to/loaded from `C:/Users/<your-name>/AppData/Local/voicevox-playground-tui/history.txt`.
+- Cache is in-memory (deleted when the process exits).
 
 ## Future Plans
 
 - Play clipboard content via command-line argument and exit.
 - Load a text file to the end via command-line argument.
-- Generate WAV files for each line in `history.txt` via command-line argument.
-- Hot-reload `history.txt` if updated, by checking its timestamp every second.
-- Automatic updates (if enabled in settings): Upon startup, reference the GitHub repository, get the `main` branch's hash, and if it differs from local, run `cargo install`. During the final phase of `cargo install`'s build, the executable should error due to being locked. If that happens, launch a separate process, terminate the main application, run `cargo install` again to succeed the final phase, and then restart itself to complete the automatic update. This is the current assumption. Not yet verified. Planning to test it.
+- Generate .wav files for each line of `history.txt` via command-line argument.
+- Check `history.txt` timestamp every second and hot-reload if updated.
 
 ## Notes
 
-- Why a native app?
-    - Do one thing well. I wanted a small-scale app that does one small thing well.
-        - However, there's no intention to implement standard I/O to make it part of a toolchain (out of scope).
-            - Nowadays, it can be smoother to directly implement desired features using an LLM and iterate on UX verification, similar to this app.
-    - Clipboard: The trigger was being able to quickly implement clipboard playback in Python via Claude chat, then brainstorming in Obsidian while playing it back, and when I casually threw that idea to Claude chat, this was quickly created.
-    - Easy OS integration: Easy local WAV file saving (future). Easy playback from clipboard (future).
+- Why a native application?
+    - Do one thing well. I wanted a small application that does one small thing well.
+        - However, there are no plans to implement standard I/O to make it part of a toolchain (out of scope).
+            - Nowadays, it can sometimes be smoother to directly implement desired features using LLMs, like this application, and iterate on UX verification.
+    - Clipboard: The impetus was that I could quickly implement clipboard playback in Python using Claude chat. While playing it back, I was brainstorming in Obsidian, and when I casually fed that to Claude chat, this was immediately created.
+    - Easy OS integration. Easy local .wav file saving (future). Easy playback from clipboard (future).
 
-- README draft ideas
+- Readme draft
     - A lightweight editor for quickly editing and playing multiple lines of dialogue.
     - More details
-        - Zundamon at the speed of thought
-        - Simple Vim-like operations for editing and playback at the speed of thought.
-        - Line-oriented, simple specifications.
+        - Zundamon at the speed of thought.
+        - Edit and play at the speed of thought with simple Vim-like operations.
+        - Line-oriented simple specification.
 
-- Name ideas
+- Naming ideas
     - `voicevox-playground-tui`
-        - Pro: The content can be changed arbitrarily with this name.
-        - Con: Like `voicevox-playground`, it doesn't describe what the tool does.
+        - Pros: Content can be arbitrarily changed.
+        - Cons: Like `voicevox-playground`, it doesn't explain what it does.
             - It's unclear how it differs from `voicevox-playground`.
-                - Potentially misleading (e.g., the misconception that 'this also only edits one line and has favorites').
+                - Could easily be misunderstood.
+                    - E.g., "This one also only edits one line and has favorites, right?" Such misunderstandings could occur.
     - `voicevox-text-editor`
-        - Pro: Clearly indicates what it does.
-            - Drawback: Doesn't convey its line-oriented nature.
+        - Pros: Easy to understand what it does.
+            - Shortcoming: Doesn't convey that it's line-oriented.
 
 ## Goals
 
-- Claude: To demonstrate that a local native Rust Zundamon client can be easily realized with Claude chat (demonstrated).
-- Sound playback: To maintain the experience of hearing sound by launching the app, entering text in INSERT mode, and pressing ESC. If this fails due to a bug, prioritize fixing that bug.
-- Dialogue: To provide an experience where users can quickly write, play, and experiment with multiple lines of dialogue in a TUI.
-- Line-oriented: To maintain a simple design where each line's dialogue data is self-contained and does not affect other lines.
+- Claude: To demonstrate (and have demonstrated) that a local native Rust Zundamon client can be easily implemented with Claude chat.
+- Sound playback: Maintain the experience of being able to play sound by launching, typing in insert mode, and pressing ESC. If a bug prevents this, prioritize fixing that bug.
+- Dialogue: Provide an experience where users can quickly write, play, and experiment with multiple lines of dialogue in a TUI.
+- Line-oriented: Each line completes a piece of dialogue data. Maintain a simple specification by not affecting other lines.
 
-## Out of Scope
+## Non-Goals (Out of Scope)
 
 - Standard I/O: Implementing standard I/O to make it usable as part of a toolchain.
-- Automation: Neatly exporting WAV files in batches, with sequential filenames including speaker, style, and the normalized beginning of the text. This would involve intelligently and automatically writing to the appropriate folder, selecting the correct audio format without specific user interaction, and completely preventing both data loss and the accumulation of unnecessary large numbers of WAV files.
-- Integration: A full-fledged integrated environment. A definitive all-in-one solution that covers everything from VOICEVOX dialogue WAV generation and video editing integration to video distribution.
+- Automation: Nicely batch-exporting .wav files. File names would include a serial number, speaker, style, and the beginning of the text (normalized). Intelligently and automatically choosing the appropriate folder and audio format for export, without specific user operations. Completely preventing data loss that could lead to valuable files being lost. Completely preventing the accumulation of unnecessary large numbers of .wav files.
+- Integration: A full-fledged integrated environment. A definitive all-in-one solution that covers everything from VOICEVOX dialogue .wav generation and integration with video editing to video distribution.
 - Singing (like the VOICEVOX editor).
 - DAW.
-- Advanced features: Editing capabilities equivalent to or superior to the VOICEVOX editor.
-- Vim: Advanced text editing features equivalent to or superior to Vim.
-- Plugins: Becoming a Vim plugin.
-- GUI: Creating a GUI with Tauri. Advanced visualization equivalent to or superior to the browser-based `voicevox-playground`.
+- Advanced features: Advanced editing capabilities equivalent to or surpassing the VOICEVOX editor.
+- Vim: Advanced text editing capabilities equivalent to or surpassing Vim.
+- Plugins: Vim plugin integration.
+- GUI: GUI conversion using Tauri. Advanced visualization capabilities equivalent to or surpassing the browser-based `voicevox-playground`.
