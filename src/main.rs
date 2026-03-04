@@ -6,6 +6,7 @@ mod speakers;
 mod tag;
 mod tui;
 mod ui;
+mod updater;
 mod voicevox;
 
 use anyhow::Result;
@@ -20,6 +21,9 @@ async fn main() -> Result<()> {
 
     let lines   = history::load()?;
     let mut app = App::new(lines);
+
+    // バックグラウンドで自動アップデートチェックを開始する
+    updater::spawn_update_check(std::sync::Arc::clone(&app.should_exit_for_update));
 
     app.init().await;
     tui::run(&mut app).await?;

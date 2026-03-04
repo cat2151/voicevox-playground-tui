@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+
 use tokio::sync::mpsc;
 use tui_textarea::TextArea;
 
@@ -29,6 +30,8 @@ pub struct App {
     pub yank_buf:      Option<String>,
     /// fetchワーカーがAPI呼び出し中かどうか
     pub is_fetching:   IsFetching,
+    /// 自動アップデートのためにアプリを終了すべきか
+    pub should_exit_for_update: Arc<AtomicBool>,
 }
 
 impl App {
@@ -55,6 +58,7 @@ impl App {
             pending_d:     false,
             yank_buf:      None,
             is_fetching,
+            should_exit_for_update: Arc::new(AtomicBool::new(false)),
         }
     }
 
