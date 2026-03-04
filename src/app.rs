@@ -1,12 +1,13 @@
 //! アプリケーション状態と状態遷移ロジック。
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::mpsc;
 use tui_textarea::TextArea;
 
-use crate::fetch::{FetchRequest, WavCache};
+use crate::fetch::{FetchRequest, IsFetching, WavCache};
 use crate::player;
 use crate::tag;
 
@@ -26,6 +27,8 @@ pub struct App {
     pub visible_lines: usize,
     pub pending_d:     bool,
     pub yank_buf:      Option<String>,
+    /// fetchワーカーがAPI呼び出し中かどうか
+    pub is_fetching:   IsFetching,
 }
 
 impl App {
@@ -36,8 +39,9 @@ impl App {
         let (play_tx, play_rx) = mpsc::channel::<Vec<u8>>(8);
         player::spawn_player(play_rx);
 
+        let is_fetching: IsFetching = Arc::new(AtomicBool::new(false));
         let (fetch_tx, fetch_rx) = mpsc::channel::<FetchRequest>(64);
-        crate::fetch::spawn_worker(fetch_rx, Arc::clone(&cache), play_tx.clone());
+        crate::fetch::spawn_worker(fetch_rx, Arc::clone(&cache), play_tx.clone(), Arc::clone(&is_fetching));
 
         let cursor = if lines.is_empty() { 0 } else { lines.len() - 1 };
         Self {
@@ -50,6 +54,7 @@ impl App {
             visible_lines: 24,
             pending_d:     false,
             yank_buf:      None,
+            is_fetching,
         }
     }
 
@@ -184,6 +189,15 @@ impl App {
         let text = tag::expand_id_tags(&raw);  // [N]展開後のキーでfetchする
         if text.trim().is_empty() { return; }
         let _ = self.fetch_tx.send(FetchRequest { text, play_after: false }).await;
+    }
+
+    /// ステータス表示文字列: Insertモード中にfetch中なら "[fetching...]" を返す
+    pub fn status_display(&self) -> &str {
+        if self.mode == Mode::Insert && self.is_fetching.load(Ordering::Relaxed) {
+            "[fetching...]"
+        } else {
+            &self.status_msg
+        }
     }
 
     // ── 内部ヘルパー ──────────────────────────────────────────────────────────
