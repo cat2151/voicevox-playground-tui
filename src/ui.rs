@@ -138,7 +138,7 @@ fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
 
     let status_color = match app.mode { Mode::Normal => YELLOW, Mode::Insert => CYAN };
     f.render_widget(
-        Paragraph::new(app.status_msg.as_str())
+        Paragraph::new(app.status_display())
             .style(Style::default().fg(status_color).bg(BG)),
         cols[0],
     );
