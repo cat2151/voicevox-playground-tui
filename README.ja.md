@@ -59,7 +59,6 @@ vpt
 - コマンドライン引数でテキストファイルを末尾に読み込む
 - コマンドライン引数でhistory.txtの行ごとにwavファイルを生成
 - history.txtを1秒ごとにtimestampチェックして更新があればホットリロード
-- 自動アップデート（設定でonにした場合）。起動直後にGitHubリポジトリを参照し、mainのhashを取得し、localと違っていればcargo install。installのbuildの最終phaseでexeはlockでerrorになるはずなので、そうなったら別processを起動、本体を終了、再度cargo installして最終phaseを成功させ、自分自身を起動することで自動アップデート完了、の想定。未検証。試すつもり。
 
 ## notes
 
