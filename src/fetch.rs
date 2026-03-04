@@ -3,7 +3,7 @@
 //! 同じ文字列なら同じwavが返るため、行の移動・編集後の巻き戻しでも正しく動く。
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::mpsc;
@@ -37,16 +37,29 @@ async fn worker_loop(
     play_tx:     mpsc::Sender<Vec<u8>>,
     is_fetching: IsFetching,
 ) {
-    let mut current_handle: Option<tokio::task::JoinHandle<()>> = None;
+    let mut current_handle:  Option<tokio::task::JoinHandle<()>> = None;
+    let mut current_is_play: bool = false;
+    // 世代カウンタ: abortされたタスクが遅れてis_fetchingをリセットするのを防ぐ
+    let fetch_gen = Arc::new(AtomicU64::new(0));
 
     while let Some(req) = rx.recv().await {
-        // 前のfetchをキャンセルして、fetchが常に単一となるようにする
-        if let Some(handle) = current_handle.take() {
-            handle.abort();
-            is_fetching.store(false, Ordering::Relaxed);
+        // play_after=true（再生リクエスト）は常に優先し既存タスクをabort。
+        // play_after=false（prefetch）は既存のprefetchのみをabortし、
+        // 進行中の再生fetchはabortしない。
+        let should_abort = req.play_after || !current_is_play;
+
+        if should_abort {
+            if let Some(handle) = current_handle.take() {
+                handle.abort();
+                is_fetching.store(false, Ordering::Relaxed);
+                current_is_play = false;
+            }
         }
 
         if req.text.trim().is_empty() { continue; }
+
+        // 再生fetchが進行中の場合、prefetchはスキップ
+        if !req.play_after && current_is_play { continue; }
 
         let cached: Option<Vec<u8>> = {
             cache.lock().unwrap().get(&req.text).cloned()
@@ -58,11 +71,14 @@ async fn worker_loop(
 
         is_fetching.store(true, Ordering::Relaxed);
 
+        let gen               = fetch_gen.fetch_add(1, Ordering::Relaxed) + 1;
+        let fetch_gen_clone   = Arc::clone(&fetch_gen);
         let cache_clone       = Arc::clone(&cache);
         let play_tx_clone     = play_tx.clone();
         let is_fetching_clone = Arc::clone(&is_fetching);
 
-        current_handle = Some(tokio::spawn(async move {
+        current_is_play = req.play_after;
+        current_handle  = Some(tokio::spawn(async move {
             match voicevox::synthesize_line(&req.text).await {
                 Ok(wav) => {
                     { cache_clone.lock().unwrap().insert(req.text.clone(), wav.clone()); }
@@ -70,9 +86,10 @@ async fn worker_loop(
                 }
                 Err(e) => eprintln!("[fetch error] {e}"),
             }
-            // タスクがabortされた場合はここに到達しないため、
-            // フラグのリセットはworker_loopのabort直後のstore(false)が担う
-            is_fetching_clone.store(false, Ordering::Relaxed);
+            // 自分が最新のタスクである場合のみis_fetchingをリセット
+            if fetch_gen_clone.load(Ordering::Relaxed) == gen {
+                is_fetching_clone.store(false, Ordering::Relaxed);
+            }
         }));
     }
 }
