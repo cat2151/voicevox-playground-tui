@@ -32,6 +32,7 @@ async fn fetch_remote_hash() -> Result<String> {
         .header("Accept", "application/vnd.github.v3+json")
         .send()
         .await?
+        .error_for_status()?
         .json()
         .await?;
 
@@ -41,28 +42,35 @@ async fn fetch_remote_hash() -> Result<String> {
         .ok_or_else(|| anyhow::anyhow!("SHA field not found in GitHub API response"))
 }
 
-/// cargo installの出力にlockエラーが含まれているか判定する（主にWindows用）
-fn is_lock_error(output: &std::process::Output) -> bool {
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let combined = format!("{}{}", stderr, stdout);
+/// cargo installのstderrにlockエラーが含まれているか判定する（主にWindows用）
+fn is_lock_error(stderr: &[u8]) -> bool {
+    let s = String::from_utf8_lossy(stderr);
     // Windows: "Access is denied" (os error 5) または "being used by another process" (os error 32)
-    combined.contains("Access is denied")
-        || combined.contains("being used by another process")
-        || combined.contains("os error 5")
-        || combined.contains("os error 32")
+    s.contains("Access is denied")
+        || s.contains("being used by another process")
+        || s.contains("os error 5")
+        || s.contains("os error 32")
+}
+
+/// ユニークなファイル名を生成するためのタイムスタンプ（ナノ秒）を返す
+fn unique_suffix() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0)
 }
 
 /// アップデータースクリプトを一時ディレクトリに書き込みspawnする。
 /// スクリプトは: メインプロセス終了を待つ → cargo install → vpt を起動。
+/// ユニークなファイル名を使い、実行後に自身を削除する。
 fn spawn_updater_process() -> Result<()> {
-    let base = std::env::temp_dir().join("vpt_updater");
+    let suffix = unique_suffix();
 
     #[cfg(target_os = "windows")]
     {
-        let script_path = base.with_extension("bat");
+        let script_path = std::env::temp_dir().join(format!("vpt_updater_{}.bat", suffix));
         let script = format!(
-            "@echo off\r\ntimeout /t 3 /nobreak >nul\r\ncargo install --force --git https://github.com/{}/{}\r\nvpt\r\n",
+            "@echo off\r\ntimeout /t 3 /nobreak >nul\r\ncargo install --force --git https://github.com/{}/{}\r\ndel \"%~f0\"\r\nvpt\r\n",
             REPO_OWNER, REPO_NAME
         );
         std::fs::write(&script_path, &script)?;
@@ -70,15 +78,15 @@ fn spawn_updater_process() -> Result<()> {
             .to_str()
             .ok_or_else(|| anyhow::anyhow!("Updater script path contains invalid UTF-8"))?;
         std::process::Command::new("cmd")
-            .args(["/C", "start", "\"vpt updater\"", script_str])
+            .args(["/C", "start", "vpt updater", script_str])
             .spawn()?;
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        let script_path = base.with_extension("sh");
+        let script_path = std::env::temp_dir().join(format!("vpt_updater_{}.sh", suffix));
         let script = format!(
-            "#!/bin/sh\nsleep 3\ncargo install --force --git https://github.com/{}/{}\nvpt\n",
+            "#!/bin/sh\nsleep 3\ncargo install --force --git https://github.com/{}/{}\nrm -- \"$0\"\nvpt\n",
             REPO_OWNER, REPO_NAME
         );
         std::fs::write(&script_path, &script)?;
@@ -109,6 +117,11 @@ pub fn spawn_update_check(should_exit: Arc<AtomicBool>) {
 }
 
 async fn check_and_update(should_exit: Arc<AtomicBool>) -> Result<()> {
+    // デバッグビルド時は自動アップデートをスキップ（開発中の誤更新を防止）
+    if cfg!(debug_assertions) {
+        return Ok(());
+    }
+
     // リモートhashを取得
     let remote_hash = match fetch_remote_hash().await {
         Ok(h) => h,
@@ -131,18 +144,18 @@ async fn check_and_update(should_exit: Arc<AtomicBool>) -> Result<()> {
         &remote_hash[..8.min(remote_hash.len())]
     );
 
-    // cargo install を実行（コンパイルに時間がかかるためspawn_blockingで実行）
+    // cargo install を実行（コンパイルに時間がかかるためspawn_blockingで実行）。
+    // stdoutは大量のビルドログを含むためnullに捨て、lockエラー検出に必要なstderrのみ収集する。
     let output = tokio::task::spawn_blocking(|| {
         std::process::Command::new("cargo")
             .args([
                 "install",
                 "--force",
                 "--git",
-                &format!(
-                    "https://github.com/{}/{}",
-                    REPO_OWNER, REPO_NAME
-                ),
+                &format!("https://github.com/{}/{}", REPO_OWNER, REPO_NAME),
             ])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
             .output()
     })
     .await??;
@@ -153,7 +166,7 @@ async fn check_and_update(should_exit: Arc<AtomicBool>) -> Result<()> {
             eprintln!("[updater] Failed to launch updated vpt: {}", e);
         }
         should_exit.store(true, Ordering::Relaxed);
-    } else if is_lock_error(&output) {
+    } else if is_lock_error(&output.stderr) {
         // 実行中のexeがlockされているため置き換えに失敗（Windows特有）。
         // アップデータープロセスを起動してメインアプリを終了する。
         // メインアプリ終了後にアップデータープロセスがcargo installを再実行し、
