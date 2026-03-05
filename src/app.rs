@@ -199,6 +199,20 @@ impl App {
 
     /// 確定: [N]展開 → 行中途のspeaker/style変化で行分割 → lines更新 → Normalへ → 再生
     pub async fn commit_insert(&mut self) {
+        self.commit_lines().await;
+        self.mode       = Mode::Normal;
+        self.status_msg = String::from("ready");
+    }
+
+    /// ENTERで確定: 現在行を確定し、下に空行を挿入してINSERTモードで編集開始（vim の o 相当）
+    pub async fn commit_and_insert_below(&mut self) {
+        self.commit_lines().await;
+        self.enter_insert_below();
+    }
+
+    /// INSERTモードのバッファをlinesに書き戻し、再生・prefetchを行う内部ヘルパー。
+    /// modeは変更しない。
+    async fn commit_lines(&mut self) {
         let raw  = self.textarea.lines().first().cloned().unwrap_or_default();
         let text = tag::expand_id_tags(&raw);
         let split_lines = tag::split_by_ctx_change(&text);
@@ -209,8 +223,6 @@ impl App {
                 self.lines.insert(self.cursor + 1 + i, extra_line.clone());
             }
         }
-        self.mode       = Mode::Normal;
-        self.status_msg = String::from("ready");
         self.lines = compress_trailing_empty(std::mem::take(&mut self.lines));
         if self.cursor >= self.lines.len() {
             self.cursor = self.lines.len().saturating_sub(1);
