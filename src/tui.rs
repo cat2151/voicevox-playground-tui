@@ -1,6 +1,7 @@
 //! TUI端末の初期化・イベントループ・キーハンドリング。
 
 use std::io;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -24,6 +25,11 @@ pub async fn run(app: &mut App) -> Result<()> {
 
     loop {
         terminal.draw(|f| ui::draw(f, app))?;
+
+        // 自動アップデートでプロセスを引き継ぐ必要があればTUIを終了する
+        if app.should_exit_for_update.load(Ordering::Relaxed) {
+            break;
+        }
 
         if !event::poll(Duration::from_millis(100))? {
             continue;
