@@ -43,6 +43,15 @@ async fn worker_loop(
     let fetch_gen = Arc::new(AtomicU64::new(0));
 
     while let Some(req) = rx.recv().await {
+        // タスクが自然完了していた場合はis_play状態をリセットする。
+        // これにより、再生fetchが完了した後にprefetchリクエストが正しく処理される。
+        if let Some(h) = &current_handle {
+            if h.is_finished() {
+                current_handle = None;
+                current_is_play = false;
+            }
+        }
+
         // play_after=true（再生リクエスト）は常に優先し既存タスクをabort。
         // play_after=false（prefetch）は既存のprefetchのみをabortし、
         // 進行中の再生fetchはabortしない。
