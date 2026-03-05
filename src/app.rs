@@ -1,7 +1,7 @@
 //! アプリケーション状態と状態遷移ロジック。
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 
@@ -192,21 +192,9 @@ impl App {
         self.restart_background_prefetch();
     }
 
-    /// Insert中の文字変化ごとに呼ぶ（debounce prefetch）
-    pub async fn on_edit_buf_changed(&mut self) {
-        let raw  = self.textarea.lines().first().cloned().unwrap_or_default();
-        let text = tag::expand_id_tags(&raw);  // [N]展開後のキーでfetchする
-        if text.trim().is_empty() { return; }
-        let _ = self.fetch_tx.send(FetchRequest { text, play_after: false }).await;
-    }
-
-    /// ステータス表示文字列: Insertモード中にfetch中なら "[fetching...]" を返す
+    /// ステータス表示文字列を返す
     pub fn status_display(&self) -> &str {
-        if self.mode == Mode::Insert && self.is_fetching.load(Ordering::Relaxed) {
-            "[fetching...]"
-        } else {
-            &self.status_msg
-        }
+        &self.status_msg
     }
 
     // ── 内部ヘルパー ──────────────────────────────────────────────────────────

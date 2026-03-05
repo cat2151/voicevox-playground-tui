@@ -86,10 +86,7 @@ pub async fn run(app: &mut App) -> Result<()> {
                 let input: Input = ev.into();
                 // 改行系キーは弾く（シングルライン強制）
                 if input.key == Key::Enter { continue; }
-                let changed = app.textarea.input(input);
-                if changed {
-                    app.on_edit_buf_changed().await;
-                }
+                app.textarea.input(input);
             }
         }
     }
