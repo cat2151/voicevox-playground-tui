@@ -53,6 +53,13 @@ vpt
 - 履歴は `C:/Users/<your-name>/AppData/Local/voicevox-playground-tui/history.txt` に保存・ロード
 - キャッシュはオンメモリ（プロセス終了で消える）
 
+## アップデート
+- アップデートしたいときも、インストールと同じコマンドを実行すればOK
+
+```
+cargo install --force --git https://github.com/cat2151/voicevox-playground-tui
+```
+
 ## 将来予定
 
 - コマンドライン引数でクリップボードを再生して終了
