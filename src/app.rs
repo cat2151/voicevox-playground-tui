@@ -15,7 +15,23 @@ use crate::player;
 use crate::tag;
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Mode { Normal, Insert }
+pub enum Mode {
+    Normal,
+    Insert,
+    /// 自動検出されたアップデートの選択ダイアログ
+    UpdateAvailableDialog,
+    /// qキー押下時に表示するアップデート選択ダイアログ
+    QuitWithUpdateDialog,
+}
+
+/// アップデート実行方法の選択結果
+#[derive(Debug, Clone, PartialEq)]
+pub enum UpdateAction {
+    /// 裏でアップデート（バックグラウンドプロセスで実行）
+    Background,
+    /// 表でアップデート（端末にビルドログを表示）
+    Foreground,
+}
 
 pub struct App {
     pub lines:         Vec<String>,
@@ -32,8 +48,12 @@ pub struct App {
     pub yank_buf:      Option<String>,
     /// fetchワーカーがAPI呼び出し中かどうか
     pub is_fetching:   IsFetching,
-    /// 自動アップデートのためにアプリを終了すべきか
-    pub should_exit_for_update: Arc<AtomicBool>,
+    /// アップデートが利用可能かどうか（バックグラウンドチェックがセットする）
+    pub update_available: Arc<AtomicBool>,
+    /// アップデートダイアログを一時的に却下したかどうか
+    pub update_dismissed: bool,
+    /// ユーザーが選択したアップデート実行方法
+    pub update_action: Option<UpdateAction>,
     /// バックグラウンドprefetchタスクのハンドル（カーソル移動時にキャンセル）
     bg_prefetch_handle: Option<JoinHandle<()>>,
 }
@@ -62,7 +82,9 @@ impl App {
             pending_d:     false,
             yank_buf:      None,
             is_fetching,
-            should_exit_for_update: Arc::new(AtomicBool::new(false)),
+            update_available: Arc::new(AtomicBool::new(false)),
+            update_dismissed: false,
+            update_action: None,
             bg_prefetch_handle: None,
         }
     }
@@ -204,6 +226,8 @@ impl App {
     pub fn status_display(&self) -> &str {
         if self.mode == Mode::Insert && self.is_fetching.load(Ordering::Relaxed) {
             "[fetching...]"
+        } else if self.mode == Mode::UpdateAvailableDialog || self.mode == Mode::QuitWithUpdateDialog {
+            "[update available]"
         } else {
             &self.status_msg
         }

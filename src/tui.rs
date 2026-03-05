@@ -13,7 +13,7 @@ use crossterm::{
 use ratatui::{backend::CrosstermBackend, Terminal};
 use tui_textarea::{Input, Key};
 
-use crate::app::{App, Mode};
+use crate::app::{App, Mode, UpdateAction};
 use crate::ui;
 
 pub async fn run(app: &mut App) -> Result<()> {
@@ -26,9 +26,12 @@ pub async fn run(app: &mut App) -> Result<()> {
     loop {
         terminal.draw(|f| ui::draw(f, app))?;
 
-        // 自動アップデートでプロセスを引き継ぐ必要があればTUIを終了する
-        if app.should_exit_for_update.load(Ordering::Relaxed) {
-            break;
+        // アップデートが利用可能になったらダイアログを表示する
+        if app.update_available.load(Ordering::Relaxed)
+            && !app.update_dismissed
+            && app.mode == Mode::Normal
+        {
+            app.mode = Mode::UpdateAvailableDialog;
         }
 
         if !event::poll(Duration::from_millis(100))? {
@@ -48,7 +51,14 @@ pub async fn run(app: &mut App) -> Result<()> {
             Mode::Normal => {
                 if let Event::Key(key) = ev {
                     match key.code {
-                        KeyCode::Char('q') => break,
+                        KeyCode::Char('q') => {
+                            // アップデートが利用可能で未却下の場合はダイアログを表示
+                            if app.update_available.load(Ordering::Relaxed) && !app.update_dismissed {
+                                app.mode = Mode::QuitWithUpdateDialog;
+                            } else {
+                                break;
+                            }
+                        }
                         KeyCode::Char('j') | KeyCode::Down  => app.move_cursor(1).await,
                         KeyCode::Char('k') | KeyCode::Up    => app.move_cursor(-1).await,
                         KeyCode::Char('i') => app.enter_insert_current(),
@@ -89,6 +99,45 @@ pub async fn run(app: &mut App) -> Result<()> {
                 let changed = app.textarea.input(input);
                 if changed {
                     app.on_edit_buf_changed().await;
+                }
+            }
+            Mode::UpdateAvailableDialog => {
+                if let Event::Key(key) = ev {
+                    match key.code {
+                        KeyCode::Char('b') => {
+                            app.update_action = Some(UpdateAction::Background);
+                            break;
+                        }
+                        KeyCode::Char('f') => {
+                            app.update_action = Some(UpdateAction::Foreground);
+                            break;
+                        }
+                        KeyCode::Esc => {
+                            // ダイアログを却下して通常操作に戻る
+                            app.update_dismissed = true;
+                            app.mode = Mode::Normal;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Mode::QuitWithUpdateDialog => {
+                if let Event::Key(key) = ev {
+                    match key.code {
+                        KeyCode::Char('q') => {
+                            // アップデートせず終了
+                            break;
+                        }
+                        KeyCode::Char('f') => {
+                            app.update_action = Some(UpdateAction::Foreground);
+                            break;
+                        }
+                        KeyCode::Esc => {
+                            // 終了をキャンセルして通常操作に戻る
+                            app.mode = Mode::Normal;
+                        }
+                        _ => {}
+                    }
                 }
             }
         }
