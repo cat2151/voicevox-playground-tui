@@ -34,7 +34,7 @@ pub struct App {
     pub is_fetching:   IsFetching,
     /// 自動アップデートのためにアプリを終了すべきか
     pub should_exit_for_update: Arc<AtomicBool>,
-    /// バックグラウンドprefetchタスクのハンドル（カーソル移動・再生時にキャンセル）
+    /// バックグラウンドprefetchタスクのハンドル（カーソル移動時にキャンセル）
     bg_prefetch_handle: Option<JoinHandle<()>>,
 }
 
@@ -230,10 +230,17 @@ impl App {
         if let Some(h) = self.bg_prefetch_handle.take() {
             h.abort();
         }
+        let cursor_text = self.lines.get(self.cursor).cloned().unwrap_or_default();
+        // 全行ではなく表示ウィンドウ内の対象行のみをcloneして渡す
+        let target_texts = background_prefetch::compute_prefetch_targets(
+            self.cursor, self.visible_lines, &self.lines,
+        )
+        .into_iter()
+        .map(|idx| self.lines[idx].clone())
+        .collect();
         self.bg_prefetch_handle = Some(background_prefetch::spawn_background_prefetch(
-            self.lines.clone(),
-            self.cursor,
-            self.visible_lines,
+            cursor_text,
+            target_texts,
             Arc::clone(&self.cache),
             Arc::clone(&self.is_fetching),
             self.fetch_tx.clone(),

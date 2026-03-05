@@ -1,6 +1,6 @@
 //! 現在行のcacheが獲得できたあと、裏で、cacheのない行を探索してcacheを取得する機能。
 //!
-//! fetch_and_play()が完了（is_fetchingがfalseになる）したあと、
+//! fetch_and_play()が完了（is_fetchingがfalseになり、かつ現在行がcacheに入る）したあと、
 //! 表示範囲内のcacheのない行を近い順に1行ずつfetchする。
 //! カーソル移動や再生操作が来たとき（spawn_background_prefetchの戻り値をabort()）でキャンセルできる。
 
@@ -14,34 +14,39 @@ use crate::fetch::{FetchRequest, IsFetching, WavCache};
 
 /// バックグラウンドprefetchタスクを起動する。
 /// 返されたJoinHandleをabort()することで中断できる。
+///
+/// - `cursor_text`:  現在行のテキスト（再生fetch完了待ちに使う）
+/// - `target_texts`: prefetch対象テキストのリスト（カーソル位置から近い順）
 pub fn spawn_background_prefetch(
-    lines:         Vec<String>,
-    cursor:        usize,
-    visible_lines: usize,
-    cache:         WavCache,
-    is_fetching:   IsFetching,
-    fetch_tx:      mpsc::Sender<FetchRequest>,
+    cursor_text:  String,
+    target_texts: Vec<String>,
+    cache:        WavCache,
+    is_fetching:  IsFetching,
+    fetch_tx:     mpsc::Sender<FetchRequest>,
 ) -> JoinHandle<()> {
     tokio::spawn(run_background_prefetch(
-        lines, cursor, visible_lines, cache, is_fetching, fetch_tx,
+        cursor_text, target_texts, cache, is_fetching, fetch_tx,
     ))
 }
 
 async fn run_background_prefetch(
-    lines:         Vec<String>,
-    cursor:        usize,
-    visible_lines: usize,
-    cache:         WavCache,
-    is_fetching:   IsFetching,
-    fetch_tx:      mpsc::Sender<FetchRequest>,
+    cursor_text:  String,
+    target_texts: Vec<String>,
+    cache:        WavCache,
+    is_fetching:  IsFetching,
+    fetch_tx:     mpsc::Sender<FetchRequest>,
 ) {
     // 現在行のfetchが完了するまで待機する
     wait_for_fetch_complete(&is_fetching).await;
 
-    let targets = compute_prefetch_targets(cursor, visible_lines, &lines);
+    // is_fetchingがfalseになっても、fetch_and_play()がキューに積まれた直後など
+    // 現在行のcacheがまだ用意されていない場合がある。
+    // cacheに格納されるまで追加で待機する。
+    if !cursor_text.trim().is_empty() && !cache.lock().unwrap().contains_key(&cursor_text) {
+        wait_for_cached(&cache, &cursor_text, Duration::from_secs(30)).await;
+    }
 
-    for idx in targets {
-        let text = lines[idx].clone();
+    for text in target_texts {
         if text.trim().is_empty() { continue; }
         if cache.lock().unwrap().contains_key(&text) { continue; }
 
@@ -159,16 +164,18 @@ mod tests {
         let cache: WavCache = Arc::new(Mutex::new(HashMap::new()));
         let is_fetching: IsFetching = Arc::new(AtomicBool::new(false));
 
-        let lines: Vec<String> = vec!["line0".into(), "line1".into(), "line2".into()];
-        // 隣接行をすべてキャッシュ済みにする
+        // 現在行（cursor_text）と隣接行をすべてキャッシュ済みにする
         {
             let mut c = cache.lock().unwrap();
             c.insert("line0".into(), vec![1, 2, 3]);
+            c.insert("line1".into(), vec![0]);
             c.insert("line2".into(), vec![4, 5, 6]);
         }
 
         let handle = spawn_background_prefetch(
-            lines, 1, 4, Arc::clone(&cache), Arc::clone(&is_fetching), tx,
+            "line1".into(),
+            vec!["line0".into(), "line2".into()],
+            Arc::clone(&cache), Arc::clone(&is_fetching), tx,
         );
         handle.await.unwrap();
 
@@ -182,19 +189,19 @@ mod tests {
         let cache: WavCache = Arc::new(Mutex::new(HashMap::new()));
         let is_fetching: IsFetching = Arc::new(AtomicBool::new(true));
 
-        let lines: Vec<String> = vec!["line0".into(), "line1".into(), "line2".into()];
+        // cursor_textをcacheに入れておく（is_fetching待ちのみをテストする）
+        cache.lock().unwrap().insert("line1".into(), vec![]);
 
         let is_fetching_clone = Arc::clone(&is_fetching);
         let _handle = spawn_background_prefetch(
-            lines, 1, 4, Arc::clone(&cache), Arc::clone(&is_fetching), tx,
+            "line1".into(),
+            vec!["line0".into(), "line2".into()],
+            Arc::clone(&cache), Arc::clone(&is_fetching), tx,
         );
 
-        // is_fetching=trueの間はリクエストを送らない
-        tokio::time::sleep(Duration::from_millis(150)).await;
-        assert!(
-            rx.try_recv().is_err(),
-            "is_fetching=trueの間はprefetchリクエストを送らないこと"
-        );
+        // is_fetching=trueの間はリクエストを送らない（50ms以内に来ないことを確認）
+        let result = tokio::time::timeout(Duration::from_millis(50), rx.recv()).await;
+        assert!(result.is_err(), "is_fetching=trueの間はprefetchリクエストを送らないこと");
 
         // is_fetching=falseにするとリクエストが来る
         is_fetching_clone.store(false, Ordering::Relaxed);
@@ -212,12 +219,14 @@ mod tests {
         let cache: WavCache = Arc::new(Mutex::new(HashMap::new()));
         let is_fetching: IsFetching = Arc::new(AtomicBool::new(false));
 
-        // 5行、カーソルは2
-        let lines: Vec<String> = (0..5).map(|i| format!("line{}", i)).collect();
+        // cursor_textをcacheに入れておく（one-at-a-timeのみをテストする）
+        cache.lock().unwrap().insert("line2".into(), vec![]);
 
         let cache_clone = Arc::clone(&cache);
         let handle = spawn_background_prefetch(
-            lines, 2, 6, Arc::clone(&cache), Arc::clone(&is_fetching), tx,
+            "line2".into(),
+            vec!["line1".into(), "line3".into(), "line0".into(), "line4".into()],
+            Arc::clone(&cache), Arc::clone(&is_fetching), tx,
         );
 
         // 1件目のリクエストを受け取る
@@ -228,12 +237,9 @@ mod tests {
         assert_ne!(req1.text, "line2", "カーソル行はprefetchしない");
         assert!(!req1.play_after);
 
-        // 1件目がキャッシュに入るまで2件目は来ない
-        tokio::time::sleep(Duration::from_millis(150)).await;
-        assert!(
-            rx.try_recv().is_err(),
-            "1件目がキャッシュに入るまで2件目のリクエストは来ないこと"
-        );
+        // 1件目がキャッシュに入るまで2件目は来ない（50ms以内に来ないことを確認）
+        let result = tokio::time::timeout(Duration::from_millis(50), rx.recv()).await;
+        assert!(result.is_err(), "1件目がキャッシュに入るまで2件目のリクエストは来ないこと");
 
         // 1件目をキャッシュに入れる
         cache_clone.lock().unwrap().insert(req1.text.clone(), vec![1]);
@@ -249,3 +255,4 @@ mod tests {
         handle.abort();
     }
 }
+
