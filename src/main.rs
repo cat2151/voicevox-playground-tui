@@ -1,4 +1,5 @@
 mod app;
+mod background_prefetch;
 mod fetch;
 mod history;
 mod player;

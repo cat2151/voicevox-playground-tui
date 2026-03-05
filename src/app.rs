@@ -6,8 +6,10 @@ use std::sync::{Arc, Mutex};
 
 
 use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 use tui_textarea::TextArea;
 
+use crate::background_prefetch;
 use crate::fetch::{FetchRequest, IsFetching, WavCache};
 use crate::player;
 use crate::tag;
@@ -32,6 +34,8 @@ pub struct App {
     pub is_fetching:   IsFetching,
     /// 自動アップデートのためにアプリを終了すべきか
     pub should_exit_for_update: Arc<AtomicBool>,
+    /// バックグラウンドprefetchタスクのハンドル（カーソル移動時にキャンセル）
+    bg_prefetch_handle: Option<JoinHandle<()>>,
 }
 
 impl App {
@@ -59,13 +63,14 @@ impl App {
             yank_buf:      None,
             is_fetching,
             should_exit_for_update: Arc::new(AtomicBool::new(false)),
+            bg_prefetch_handle: None,
         }
     }
 
     pub async fn init(&mut self) {
         let idx = self.cursor;
         self.fetch_and_play(idx).await;
-        self.prefetch_neighbors().await;
+        self.restart_background_prefetch();
     }
 
     // ── Normal mode ───────────────────────────────────────────────────────────
@@ -78,7 +83,7 @@ impl App {
         if next != self.cursor {
             self.cursor = next;
             self.fetch_and_play(self.cursor).await;
-            self.prefetch_neighbors().await;
+            self.restart_background_prefetch();
         }
     }
 
@@ -98,7 +103,7 @@ impl App {
         self.lines.remove(self.cursor);
         if self.cursor >= self.lines.len() { self.cursor = self.lines.len() - 1; }
         self.fetch_and_play(self.cursor).await;
-        self.prefetch_neighbors().await;
+        self.restart_background_prefetch();
     }
 
     pub async fn paste_below(&mut self) {
@@ -107,7 +112,7 @@ impl App {
         self.lines.insert(self.cursor + 1, text);
         self.cursor += 1;
         self.fetch_and_play(self.cursor).await;
-        self.prefetch_neighbors().await;
+        self.restart_background_prefetch();
     }
 
     pub async fn paste_above(&mut self) {
@@ -115,7 +120,7 @@ impl App {
         let text = match &self.yank_buf { Some(t) => t.clone(), None => return };
         self.lines.insert(self.cursor, text);
         self.fetch_and_play(self.cursor).await;
-        self.prefetch_neighbors().await;
+        self.restart_background_prefetch();
     }
 
     // ── Insert mode ───────────────────────────────────────────────────────────
@@ -184,7 +189,7 @@ impl App {
             self.cursor = self.lines.len().saturating_sub(1);
         }
         self.fetch_and_play(self.cursor).await;
-        self.prefetch_neighbors().await;
+        self.restart_background_prefetch();
     }
 
     /// Insert中の文字変化ごとに呼ぶ（debounce prefetch）
@@ -219,29 +224,27 @@ impl App {
         }
     }
 
-    async fn prefetch_neighbors(&self) {
-        let len = self.lines.len();
-        if len == 0 { return; }
-        let half      = self.visible_lines / 2;
-        let win_start = self.cursor.saturating_sub(half);
-        let win_end   = (win_start + self.visible_lines).min(len);
-        let win_start = win_end.saturating_sub(self.visible_lines);
-        let mut targets: Vec<usize> = Vec::new();
-        for d in 1..=self.visible_lines as i32 {
-            for &delta in &[d, -d] {
-                let idx = self.cursor as i32 + delta;
-                if idx >= win_start as i32 && idx < win_end as i32 {
-                    targets.push(idx as usize);
-                }
-            }
+    /// 現在行のfetch完了後、表示範囲内のcacheのない行を裏で1行ずつfetchする。
+    /// 前回のタスクがあればキャンセルしてから新たに起動する。
+    fn restart_background_prefetch(&mut self) {
+        if let Some(h) = self.bg_prefetch_handle.take() {
+            h.abort();
         }
-        targets.dedup();
-        for idx in targets {
-            let text = self.lines[idx].clone();
-            if text.trim().is_empty() { continue; }
-            if self.cache.lock().unwrap().contains_key(&text) { continue; }
-            let _ = self.fetch_tx.send(FetchRequest { text, play_after: false }).await;
-        }
+        let cursor_text = self.lines.get(self.cursor).cloned().unwrap_or_default();
+        // 全行ではなく表示ウィンドウ内の対象行のみをcloneして渡す
+        let target_texts = background_prefetch::compute_prefetch_targets(
+            self.cursor, self.visible_lines, &self.lines,
+        )
+        .into_iter()
+        .map(|idx| self.lines[idx].clone())
+        .collect();
+        self.bg_prefetch_handle = Some(background_prefetch::spawn_background_prefetch(
+            cursor_text,
+            target_texts,
+            Arc::clone(&self.cache),
+            Arc::clone(&self.is_fetching),
+            self.fetch_tx.clone(),
+        ));
     }
 }
 
