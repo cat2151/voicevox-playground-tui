@@ -162,6 +162,25 @@ pub fn ctx_to_prefix(ctx: &VoiceCtx) -> String {
     s
 }
 
+/// 行の途中でspeaker/styleが変わる場合、変わる箇所で行を分割して返す。
+/// 変わらない場合は元の行をそのまま1要素のVecで返す（原文字列を保持する）。
+///
+/// 例: `ずんだもん喋る[四国めたん]めたん喋る`
+///   → `["ずんだもん喋る", "[四国めたん]めたん喋る"]`
+pub fn split_by_ctx_change(line: &str) -> Vec<String> {
+    let segments = parse_line(line);
+    if segments.len() <= 1 {
+        // 分割不要の場合は元の文字列をそのまま返す（再構築による差異を避ける）
+        return vec![line.to_string()];
+    }
+    segments.into_iter()
+        .map(|(text, ctx)| {
+            let prefix = ctx_to_prefix(&ctx);
+            format!("{}{}", prefix, text)
+        })
+        .collect()
+}
+
 /// `[N]` タグを可読なキャラ名・スタイル名タグに展開する（commit_insert時に呼ぶ）。
 ///
 /// 変換ルール:
@@ -224,4 +243,62 @@ pub fn expand_id_tags(line: &str) -> String {
     }
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::speakers;
+
+    fn setup() { speakers::init_test_table(); }
+
+    #[test]
+    fn split_no_change_plain_text() {
+        setup();
+        let result = split_by_ctx_change("ずんだもん喋る");
+        assert_eq!(result, vec!["ずんだもん喋る"]);
+    }
+
+    #[test]
+    fn split_no_change_prefix_tags_only() {
+        setup();
+        // タグが先頭にだけある場合は分割されない
+        let result = split_by_ctx_change("[四国めたん]めたん喋る");
+        assert_eq!(result, vec!["[四国めたん]めたん喋る"]);
+    }
+
+    #[test]
+    fn split_mid_line_char_change() {
+        setup();
+        // 行の途中でキャラが変わる場合は分割される
+        let result = split_by_ctx_change("ずんだもん喋る[四国めたん]めたん喋る");
+        assert_eq!(result, vec![
+            "ずんだもん喋る",
+            "[四国めたん]めたん喋る",
+        ]);
+    }
+
+    #[test]
+    fn split_mid_line_style_change() {
+        setup();
+        // 行の途中でスタイルが変わる場合は分割される
+        let result = split_by_ctx_change("ずんだもん喋る[あまあま]あまあま喋る");
+        assert_eq!(result, vec![
+            "ずんだもん喋る",
+            "[あまあま]あまあま喋る",
+        ]);
+    }
+
+    #[test]
+    fn split_mid_line_multiple_changes() {
+        setup();
+        // 複数回変わる場合は複数行に分割される
+        // [ずんだもん]は先頭で現在キャラに戻り、[あまあま]はスタイル変更（バッファ空なので分割なし）
+        let result = split_by_ctx_change("ずんだもん[四国めたん]めたん[ずんだもん][あまあま]あまあま");
+        assert_eq!(result, vec![
+            "ずんだもん",
+            "[四国めたん]めたん",
+            "[あまあま]あまあま",
+        ]);
+    }
 }

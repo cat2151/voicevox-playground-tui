@@ -110,3 +110,39 @@ impl SpeakerTable {
             .map(|(c, s)| (c.clone(), s.clone(), id))
     }
 }
+
+#[cfg(test)]
+pub(crate) fn init_test_table() {
+    let mut by_name     = HashMap::new();
+    let mut by_style_id = HashMap::new();
+    let mut char_styles: HashMap<String, Vec<(String, u32)>> = HashMap::new();
+
+    // ずんだもん: ノーマル(3), あまあま(1)
+    by_name.insert(("ずんだもん".to_string(), "ノーマル".to_string()), 3u32);
+    by_name.insert(("ずんだもん".to_string(), "あまあま".to_string()), 1u32);
+    by_style_id.insert(3u32, ("ずんだもん".to_string(), "ノーマル".to_string()));
+    by_style_id.insert(1u32, ("ずんだもん".to_string(), "あまあま".to_string()));
+    char_styles.insert("ずんだもん".to_string(), vec![
+        ("ノーマル".to_string(), 3u32),
+        ("あまあま".to_string(), 1u32),
+    ]);
+
+    // 四国めたん: ノーマル(2)
+    by_name.insert(("四国めたん".to_string(), "ノーマル".to_string()), 2u32);
+    by_style_id.insert(2u32, ("四国めたん".to_string(), "ノーマル".to_string()));
+    char_styles.insert("四国めたん".to_string(), vec![
+        ("ノーマル".to_string(), 2u32),
+    ]);
+
+    TABLE.set(SpeakerTable {
+        by_name,
+        by_style_id,
+        char_styles,
+        char_names:    vec!["ずんだもん".to_string(), "四国めたん".to_string()],
+        style_names:   vec!["あまあま".to_string(), "ノーマル".to_string()],
+        default_id:    3,
+        default_char:  "ずんだもん".to_string(),
+        default_style: "ノーマル".to_string(),
+        base_url:      String::new(),
+    }).ok();
+}
