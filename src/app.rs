@@ -197,12 +197,17 @@ impl App {
         self.status_msg = String::from("-- INSERT --");
     }
 
-    /// 確定: [N]展開 → lines更新 → Normalへ → 再生
+    /// 確定: [N]展開 → 行中途のspeaker/style変化で行分割 → lines更新 → Normalへ → 再生
     pub async fn commit_insert(&mut self) {
         let raw  = self.textarea.lines().first().cloned().unwrap_or_default();
         let text = tag::expand_id_tags(&raw);
+        let split_lines = tag::split_by_ctx_change(&text);
         if self.cursor < self.lines.len() {
-            self.lines[self.cursor] = text;
+            // split_by_ctx_change は常に1要素以上を返す
+            self.lines[self.cursor] = split_lines.first().cloned().unwrap_or_default();
+            for (i, extra_line) in split_lines[1..].iter().enumerate() {
+                self.lines.insert(self.cursor + 1 + i, extra_line.clone());
+            }
         }
         self.mode       = Mode::Normal;
         self.status_msg = String::from("ready");
