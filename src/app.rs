@@ -199,9 +199,9 @@ impl App {
 
     /// 確定: [N]展開 → 行中途のspeaker/style変化で行分割 → lines更新 → Normalへ → 再生
     pub async fn commit_insert(&mut self) {
+        self.status_msg = String::from("ready");
         self.commit_lines().await;
         self.mode       = Mode::Normal;
-        self.status_msg = String::from("ready");
     }
 
     /// ENTERで確定: 現在行を確定し、下に空行を挿入してINSERTモードで編集開始（vim の o 相当）
