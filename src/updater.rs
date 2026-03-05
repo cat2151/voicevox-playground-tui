@@ -1,6 +1,6 @@
 //! 自動アップデート機能。
 //! 起動時にGitHubのmainブランチのhashをチェックし、
-//! ローカルのhashと異なる場合はcargo installで更新する。
+//! ローカルのhashと異なる場合はユーザーに選択を委ねる。
 
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -40,16 +40,6 @@ async fn fetch_remote_hash() -> Result<String> {
         .as_str()
         .map(|s| s.to_string())
         .ok_or_else(|| anyhow::anyhow!("SHA field not found in GitHub API response"))
-}
-
-/// cargo installのstderrにlockエラーが含まれているか判定する（主にWindows用）
-fn is_lock_error(stderr: &[u8]) -> bool {
-    let s = String::from_utf8_lossy(stderr);
-    // Windows: "Access is denied" (os error 5) または "being used by another process" (os error 32)
-    s.contains("Access is denied")
-        || s.contains("being used by another process")
-        || s.contains("os error 5")
-        || s.contains("os error 32")
 }
 
 /// ユニークなファイル名を生成するためのタイムスタンプ（ナノ秒）を返す
@@ -107,16 +97,17 @@ fn spawn_updater_process() -> Result<()> {
 }
 
 /// バックグラウンドでアップデートチェックを実行する。
-/// 更新が必要で自動インストールが開始されたら `should_exit` を true にセットする。
-pub fn spawn_update_check(should_exit: Arc<AtomicBool>) {
+/// 更新が必要な場合は `update_available` を true にセットし、ユーザーの選択を待つ。
+pub fn spawn_update_check(update_available: Arc<AtomicBool>) {
     tokio::spawn(async move {
-        if let Err(e) = check_and_update(should_exit).await {
-            eprintln!("[updater] error: {}", e);
+        if let Err(e) = check_for_update(update_available).await {
+            // TUI動作中のためeprintlnは使わない（表示崩れ防止）
+            let _ = e; // エラーは無視してサイレントに失敗する
         }
     });
 }
 
-async fn check_and_update(should_exit: Arc<AtomicBool>) -> Result<()> {
+async fn check_for_update(update_available: Arc<AtomicBool>) -> Result<()> {
     // デバッグビルド時は自動アップデートをスキップ（開発中の誤更新を防止）
     if cfg!(debug_assertions) {
         return Ok(());
@@ -125,10 +116,7 @@ async fn check_and_update(should_exit: Arc<AtomicBool>) -> Result<()> {
     // リモートhashを取得
     let remote_hash = match fetch_remote_hash().await {
         Ok(h) => h,
-        Err(e) => {
-            eprintln!("[updater] Failed to fetch remote hash: {}", e);
-            return Ok(());
-        }
+        Err(_) => return Ok(()), // ネットワークエラーはサイレントに無視
     };
 
     let local = LOCAL_HASH.trim();
@@ -138,15 +126,25 @@ async fn check_and_update(should_exit: Arc<AtomicBool>) -> Result<()> {
         return Ok(());
     }
 
-    eprintln!(
-        "[updater] Update available (local: {}, remote: {})",
-        &local[..8.min(local.len())],
-        &remote_hash[..8.min(remote_hash.len())]
-    );
+    // アップデートが利用可能: フラグをセットしてユーザーの選択を待つ
+    update_available.store(true, Ordering::Relaxed);
 
-    // cargo install を実行（コンパイルに時間がかかるためspawn_blockingで実行）。
-    // stdoutは大量のビルドログを含むためnullに捨て、lockエラー検出に必要なstderrのみ収集する。
-    let output = tokio::task::spawn_blocking(|| {
+    Ok(())
+}
+
+/// 裏でアップデートする（バックグラウンドプロセスを起動してメインアプリを終了）。
+/// TUIを終了してから呼び出すこと。
+pub fn run_background_update() -> Result<()> {
+    spawn_updater_process()
+}
+
+/// 表でアップデートする（端末にビルドログを表示しながら cargo install を実行）。
+/// TUIを終了してから呼び出すこと。
+pub async fn run_foreground_update() -> Result<()> {
+    println!("アップデートを開始します...");
+    println!("cargo install --force --git https://github.com/{}/{}", REPO_OWNER, REPO_NAME);
+
+    let status = tokio::task::spawn_blocking(|| {
         std::process::Command::new("cargo")
             .args([
                 "install",
@@ -154,34 +152,25 @@ async fn check_and_update(should_exit: Arc<AtomicBool>) -> Result<()> {
                 "--git",
                 &format!("https://github.com/{}/{}", REPO_OWNER, REPO_NAME),
             ])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::piped())
-            .output()
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .status()
     })
     .await??;
 
-    if output.status.success() {
-        // インストール成功: vpt を再起動して終了
+    if status.success() {
+        println!("アップデート成功！再起動します...");
         if let Err(e) = std::process::Command::new("vpt").spawn() {
-            eprintln!("[updater] Failed to launch updated vpt: {}", e);
-        }
-        should_exit.store(true, Ordering::Relaxed);
-    } else if is_lock_error(&output.stderr) {
-        // 実行中のexeがlockされているため置き換えに失敗（Windows特有）。
-        // アップデータープロセスを起動してメインアプリを終了する。
-        // メインアプリ終了後にアップデータープロセスがcargo installを再実行し、
-        // 最終フェーズを成功させて自動アップデートを完了させる。
-        match spawn_updater_process() {
-            Ok(()) => {
-                should_exit.store(true, Ordering::Relaxed);
-            }
-            Err(e) => {
-                eprintln!("[updater] Failed to spawn updater process: {}", e);
-            }
+            eprintln!("vptの再起動に失敗しました: {}", e);
         }
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        eprintln!("[updater] cargo install failed: {}", stderr);
+        // インストール失敗: Windows でのファイルロックを含む全エラーに対して
+        // バックグラウンドアップデータープロセスを起動して再試行する。
+        // (foreground mode では stderr を piped していないためロック判定は不可)
+        eprintln!("アップデートに失敗しました。バックグラウンドアップデーターで再試行します...");
+        if let Err(e) = spawn_updater_process() {
+            eprintln!("バックグラウンドアップデーターの起動に失敗しました: {}", e);
+        }
     }
 
     Ok(())

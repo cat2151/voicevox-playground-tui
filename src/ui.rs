@@ -2,7 +2,7 @@
 
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
     Frame,
 };
 
@@ -15,6 +15,7 @@ const DIM:          Color = Color::Rgb(117, 113, 94);
 const YELLOW:       Color = Color::Rgb(230, 219, 116);
 const GREEN:        Color = Color::Rgb(166, 226, 46);
 const CYAN:         Color = Color::Rgb(102, 217, 232);
+const ORANGE:       Color = Color::Rgb(253, 151, 31);
 const CURSOR_NORMAL:Color = Color::Rgb(73, 72, 62);
 const CURSOR_INSERT:Color = Color::Rgb(102, 217, 232);
 
@@ -31,13 +32,20 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     render_lines(f, app, chunks[0]);
     render_status(f, app, chunks[1]);
+
+    // アップデートダイアログをオーバーレイとして描画する
+    match app.mode {
+        Mode::UpdateAvailableDialog => render_update_available_dialog(f, f.area()),
+        Mode::QuitWithUpdateDialog  => render_quit_update_dialog(f, f.area()),
+        _ => {}
+    }
 }
 
 fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
 
 
-    let cursor_bg = match app.mode { Mode::Normal => CURSOR_NORMAL, Mode::Insert => CURSOR_INSERT };
-    let cursor_fg = match app.mode { Mode::Normal => FG,            Mode::Insert => BG            };
+    let cursor_bg = match app.mode { Mode::Normal => CURSOR_NORMAL, Mode::Insert => CURSOR_INSERT, _ => CURSOR_NORMAL };
+    let cursor_fg = match app.mode { Mode::Normal => FG,            Mode::Insert => BG,            _ => FG            };
 
     // リスト全体のRect（ボーダー内側）
     let inner = Rect {
@@ -76,8 +84,9 @@ fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
     let title = match app.mode {
         Mode::Normal => Span::styled(" ずんだもん [NORMAL] ", Style::default().fg(GREEN).bold()),
         Mode::Insert => Span::styled(" ずんだもん [INSERT] ", Style::default().fg(CYAN).bold()),
+        _ => Span::styled(" ずんだもん [NORMAL] ", Style::default().fg(GREEN).bold()),
     };
-    let border_color = match app.mode { Mode::Normal => DIM, Mode::Insert => CYAN };
+    let border_color = match app.mode { Mode::Normal => DIM, Mode::Insert => CYAN, _ => DIM };
 
     let list = List::new(items)
         .block(
@@ -128,6 +137,7 @@ fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
     let hint = match app.mode {
         Mode::Normal => "j/k:move  i:edit  o/O:newline  dd:delete  p/P:paste  Space/Enter:play  q:quit",
         Mode::Insert => "^A:home  ^E:end  ^K:kill  ^W:del-word  Esc/Enter:confirm",
+        Mode::UpdateAvailableDialog | Mode::QuitWithUpdateDialog => "",
     };
     let hint_width = hint.len() as u16 + 1;
 
@@ -136,7 +146,7 @@ fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
         Constraint::Length(hint_width),
     ]).split(area);
 
-    let status_color = match app.mode { Mode::Normal => YELLOW, Mode::Insert => CYAN };
+    let status_color = match app.mode { Mode::Normal => YELLOW, Mode::Insert => CYAN, _ => YELLOW };
     f.render_widget(
         Paragraph::new(app.status_display())
             .style(Style::default().fg(status_color).bg(BG)),
@@ -148,4 +158,70 @@ fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
             .alignment(Alignment::Right),
         cols[1],
     );
+}
+
+/// ダイアログ用の中央配置Rectを計算する
+fn centered_dialog(width: u16, height: u16, area: Rect) -> Rect {
+    let x = area.x + area.width.saturating_sub(width) / 2;
+    let y = area.y + area.height.saturating_sub(height) / 2;
+    Rect {
+        x,
+        y,
+        width:  width.min(area.width),
+        height: height.min(area.height),
+    }
+}
+
+/// アップデート利用可能ダイアログ（自動検出時）
+fn render_update_available_dialog(f: &mut Frame, area: Rect) {
+    let dialog_area = centered_dialog(44, 9, area);
+    f.render_widget(Clear, dialog_area);
+
+    let text = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            "  新しいバージョンが利用可能です！",
+            Style::default().fg(ORANGE).bold(),
+        )),
+        Line::from(""),
+        Line::from(Span::styled("  b : 裏でアップデート（バックグラウンド）", Style::default().fg(FG))),
+        Line::from(Span::styled("  f : 表でアップデート（ビルドログを表示）", Style::default().fg(FG))),
+        Line::from(Span::styled("  Esc : 今はアップデートしない", Style::default().fg(DIM))),
+        Line::from(""),
+    ];
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ORANGE))
+        .title(Span::styled(" Update Available ", Style::default().fg(ORANGE).bold()))
+        .style(Style::default().bg(BG));
+
+    f.render_widget(Paragraph::new(text).block(block), dialog_area);
+}
+
+/// アップデート選択ダイアログ（qキー押下時）
+fn render_quit_update_dialog(f: &mut Frame, area: Rect) {
+    let dialog_area = centered_dialog(44, 9, area);
+    f.render_widget(Clear, dialog_area);
+
+    let text = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            "  新しいバージョンが利用可能です！",
+            Style::default().fg(ORANGE).bold(),
+        )),
+        Line::from(""),
+        Line::from(Span::styled("  f : 表でアップデートして終了", Style::default().fg(FG))),
+        Line::from(Span::styled("  q : アップデートせず終了", Style::default().fg(FG))),
+        Line::from(Span::styled("  Esc : キャンセル（終了しない）", Style::default().fg(DIM))),
+        Line::from(""),
+    ];
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ORANGE))
+        .title(Span::styled(" Update Available ", Style::default().fg(ORANGE).bold()))
+        .style(Style::default().bg(BG));
+
+    f.render_widget(Paragraph::new(text).block(block), dialog_area);
 }
