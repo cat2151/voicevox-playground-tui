@@ -134,6 +134,7 @@ pub async fn run(app: &mut App) -> Result<()> {
                         }
                         KeyCode::Esc => {
                             // 終了をキャンセルして通常操作に戻る
+                            app.update_dismissed = true;
                             app.mode = Mode::Normal;
                         }
                         _ => {}

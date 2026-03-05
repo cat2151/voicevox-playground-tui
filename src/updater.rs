@@ -42,16 +42,6 @@ async fn fetch_remote_hash() -> Result<String> {
         .ok_or_else(|| anyhow::anyhow!("SHA field not found in GitHub API response"))
 }
 
-/// cargo installのstderrにlockエラーが含まれているか判定する（主にWindows用）
-fn is_lock_error(stderr: &[u8]) -> bool {
-    let s = String::from_utf8_lossy(stderr);
-    // Windows: "Access is denied" (os error 5) または "being used by another process" (os error 32)
-    s.contains("Access is denied")
-        || s.contains("being used by another process")
-        || s.contains("os error 5")
-        || s.contains("os error 32")
-}
-
 /// ユニークなファイル名を生成するためのタイムスタンプ（ナノ秒）を返す
 fn unique_suffix() -> u128 {
     std::time::SystemTime::now()
@@ -154,7 +144,7 @@ pub async fn run_foreground_update() -> Result<()> {
     println!("アップデートを開始します...");
     println!("cargo install --force --git https://github.com/{}/{}", REPO_OWNER, REPO_NAME);
 
-    let output = tokio::task::spawn_blocking(|| {
+    let status = tokio::task::spawn_blocking(|| {
         std::process::Command::new("cargo")
             .args([
                 "install",
@@ -164,22 +154,23 @@ pub async fn run_foreground_update() -> Result<()> {
             ])
             .stdout(std::process::Stdio::inherit())
             .stderr(std::process::Stdio::inherit())
-            .output()
+            .status()
     })
     .await??;
 
-    if output.status.success() {
+    if status.success() {
         println!("アップデート成功！再起動します...");
         if let Err(e) = std::process::Command::new("vpt").spawn() {
             eprintln!("vptの再起動に失敗しました: {}", e);
         }
-    } else if is_lock_error(&output.stderr) {
-        // 実行中のexeがlockされているため置き換えに失敗（Windows特有）。
-        // アップデータープロセスを起動して終了する。
-        println!("ファイルがロックされています。バックグラウンドアップデーターを起動します...");
-        spawn_updater_process()?;
     } else {
-        eprintln!("アップデートに失敗しました。");
+        // インストール失敗: Windows でのファイルロックを含む全エラーに対して
+        // バックグラウンドアップデータープロセスを起動して再試行する。
+        // (foreground mode では stderr を piped していないためロック判定は不可)
+        eprintln!("アップデートに失敗しました。バックグラウンドアップデーターで再試行します...");
+        if let Err(e) = spawn_updater_process() {
+            eprintln!("バックグラウンドアップデーターの起動に失敗しました: {}", e);
+        }
     }
 
     Ok(())
