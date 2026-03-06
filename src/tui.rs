@@ -81,10 +81,14 @@ pub async fn run(app: &mut App) -> Result<()> {
             Mode::Insert => {
                 if let Event::Key(key) = &ev {
                     match (key.code, key.modifiers) {
-                        // Esc / Enter で確定
-                        (KeyCode::Esc, _) |
-                        (KeyCode::Enter, KeyModifiers::NONE) => {
+                        // Esc で確定してNormalモードへ
+                        (KeyCode::Esc, _) => {
                             app.commit_insert().await;
+                            continue;
+                        }
+                        // Enter で確定し、次の空行をINSERTモードで編集（vimのo相当）
+                        (KeyCode::Enter, KeyModifiers::NONE) => {
+                            app.commit_and_insert_below().await;
                             continue;
                         }
                         // Enter+修飾キーはtextareaに渡さない（改行防止）
