@@ -60,7 +60,7 @@ fn spawn_updater_process() -> Result<()> {
     {
         let script_path = std::env::temp_dir().join(format!("vpt_updater_{}.bat", suffix));
         let script = format!(
-            "@echo off\r\ntimeout /t 3 /nobreak >nul\r\ncargo install --force --git https://github.com/{}/{}\r\ndel \"%~f0\"\r\nvpt\r\n",
+            "@echo off\r\ntimeout /t 3 /nobreak >nul\r\ncargo install --force --git https://github.com/{}/{}\r\nvpt\r\ndel \"%~f0\"\r\n",
             REPO_OWNER, REPO_NAME
         );
         std::fs::write(&script_path, &script)?;
@@ -140,38 +140,47 @@ pub fn run_background_update() -> Result<()> {
 
 /// 表でアップデートする（端末にビルドログを表示しながら cargo install を実行）。
 /// TUIを終了してから呼び出すこと。
+/// Windowsではexeファイルのロックにより直接インストールできないため、バッチファイルを使用する。
 pub async fn run_foreground_update() -> Result<()> {
-    println!("アップデートを開始します...");
-    println!("cargo install --force --git https://github.com/{}/{}", REPO_OWNER, REPO_NAME);
-
-    let status = tokio::task::spawn_blocking(|| {
-        std::process::Command::new("cargo")
-            .args([
-                "install",
-                "--force",
-                "--git",
-                &format!("https://github.com/{}/{}", REPO_OWNER, REPO_NAME),
-            ])
-            .stdout(std::process::Stdio::inherit())
-            .stderr(std::process::Stdio::inherit())
-            .status()
-    })
-    .await??;
-
-    if status.success() {
-        println!("アップデート成功！再起動します...");
-        if let Err(e) = std::process::Command::new("vpt").spawn() {
-            eprintln!("vptの再起動に失敗しました: {}", e);
-        }
-    } else {
-        // インストール失敗: Windows でのファイルロックを含む全エラーに対して
-        // バックグラウンドアップデータープロセスを起動して再試行する。
-        // (foreground mode では stderr を piped していないためロック判定は不可)
-        eprintln!("アップデートに失敗しました。バックグラウンドアップデーターで再試行します...");
-        if let Err(e) = spawn_updater_process() {
-            eprintln!("バックグラウンドアップデーターの起動に失敗しました: {}", e);
-        }
+    #[cfg(target_os = "windows")]
+    {
+        println!("アップデートをバッチファイルで開始します...");
+        spawn_updater_process()
+            .map_err(|e| anyhow::anyhow!("バッチファイルアップデーターの起動に失敗しました: {}", e))?;
+        return Ok(());
     }
 
-    Ok(())
+    #[cfg(not(target_os = "windows"))]
+    {
+        println!("アップデートを開始します...");
+        println!("cargo install --force --git https://github.com/{}/{}", REPO_OWNER, REPO_NAME);
+
+        let status = tokio::task::spawn_blocking(|| {
+            std::process::Command::new("cargo")
+                .args([
+                    "install",
+                    "--force",
+                    "--git",
+                    &format!("https://github.com/{}/{}", REPO_OWNER, REPO_NAME),
+                ])
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit())
+                .status()
+        })
+        .await??;
+
+        if status.success() {
+            println!("アップデート成功！再起動します...");
+            if let Err(e) = std::process::Command::new("vpt").spawn() {
+                eprintln!("vptの再起動に失敗しました: {}", e);
+            }
+        } else {
+            eprintln!("アップデートに失敗しました。バックグラウンドアップデーターで再試行します...");
+            if let Err(e) = spawn_updater_process() {
+                eprintln!("バックグラウンドアップデーターの起動に失敗しました: {}", e);
+            }
+        }
+
+        Ok(())
+    }
 }
