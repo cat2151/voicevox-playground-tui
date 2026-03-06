@@ -1,5 +1,6 @@
 mod app;
 mod background_prefetch;
+mod engine_launcher;
 mod fetch;
 mod history;
 mod player;
@@ -17,6 +18,9 @@ const BASE_URL: &str = "http://localhost:50021";
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // エンジンが起動していなければ自動起動する
+    engine_launcher::ensure_engine_running(BASE_URL).await?;
+
     // 起動時に speaker テーブルをAPIから取得する（ハードコーディングなし）
     speakers::load(BASE_URL).await?;
 
