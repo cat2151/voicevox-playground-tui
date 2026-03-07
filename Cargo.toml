@@ -18,3 +18,4 @@ tokio       = { version = "1", features = ["full"] }
 dirs        = "5"
 anyhow      = "1"
 tui-textarea = "0.7"
+arboard      = "3.6.1"

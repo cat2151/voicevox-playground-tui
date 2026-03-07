@@ -65,12 +65,27 @@ pub async fn run(app: &mut App) -> Result<()> {
                         KeyCode::Char('o') => app.enter_insert_below(),
                         KeyCode::Char('O') => app.enter_insert_above(),
                         KeyCode::Enter | KeyCode::Char(' ') => app.play_current().await,
+                        KeyCode::Char('p') if app.pending_clipboard => app.paste_below_from_clipboard().await,
+                        KeyCode::Char('P') if app.pending_clipboard => app.paste_above_from_clipboard().await,
                         KeyCode::Char('p') => app.paste_below().await,
                         KeyCode::Char('P') => app.paste_above().await,
+                        KeyCode::Char('"') => {
+                            app.pending_d = false;
+                            app.pending_z = false;
+                            app.pending_g = false;
+                            app.pending_clipboard = false;
+                            app.pending_quote = true;
+                        }
+                        KeyCode::Char('+') if app.pending_quote => {
+                            app.pending_quote = false;
+                            app.pending_clipboard = true;
+                        }
                         KeyCode::Char('z') => {
                             app.pending_d = false;
                             app.pending_z = true;
                             app.pending_g = false;
+                            app.pending_quote = false;
+                            app.pending_clipboard = false;
                         }
                         KeyCode::Char('m') if app.pending_z => {
                             app.fold();
@@ -85,12 +100,16 @@ pub async fn run(app: &mut App) -> Result<()> {
                                 app.pending_d = true;
                                 app.pending_z = false;
                                 app.pending_g = false;
+                                app.pending_quote = false;
+                                app.pending_clipboard = false;
                             }
                         }
                         KeyCode::Char('g') => {
                             app.pending_d = false;
                             app.pending_z = false;
                             app.pending_g = true;
+                            app.pending_quote = false;
+                            app.pending_clipboard = false;
                         }
                         KeyCode::Char('t') if app.pending_g => {
                             app.tab_next();
@@ -102,6 +121,8 @@ pub async fn run(app: &mut App) -> Result<()> {
                             app.pending_d = false;
                             app.pending_z = false;
                             app.pending_g = false;
+                            app.pending_quote = false;
+                            app.pending_clipboard = false;
                             app.command_buf = String::new();
                             app.mode = Mode::Command;
                         }
@@ -111,9 +132,11 @@ pub async fn run(app: &mut App) -> Result<()> {
                             app.pending_d = false;
                             app.pending_z = false;
                             app.pending_g = false;
+                            app.pending_quote = false;
+                            app.pending_clipboard = false;
                             app.esc_hint_until = Some(Instant::now() + Duration::from_millis(ESC_HINT_DURATION_MS));
                         }
-                        _ => { app.pending_d = false; app.pending_z = false; app.pending_g = false; }
+                        _ => { app.pending_d = false; app.pending_z = false; app.pending_g = false; app.pending_quote = false; app.pending_clipboard = false; }
                     }
                 }
             }
