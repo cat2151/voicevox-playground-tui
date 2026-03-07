@@ -10,6 +10,19 @@ const MAX_WAIT_SECS: u64 = 60;
 /// ポーリング間隔（ミリ秒）
 const POLL_INTERVAL_MS: u64 = 1000;
 
+/// 指定されたクライアントを使ってVOICEVOXエンジンが起動しているか確認する。
+/// /speakers が 2xx を返したときのみ true を返す。
+async fn check_engine_with_client(client: &reqwest::Client, base_url: &str) -> bool {
+    match client
+        .get(format!("{base_url}/speakers"))
+        .send()
+        .await
+    {
+        Ok(resp) => resp.status().is_success(),
+        Err(_) => false,
+    }
+}
+
 /// VOICEVOXエンジンが起動しているか確認する（/speakersへのリクエストで確認）。
 pub async fn is_engine_running(base_url: &str) -> bool {
     let client = match reqwest::Client::builder()
@@ -19,11 +32,7 @@ pub async fn is_engine_running(base_url: &str) -> bool {
         Ok(c) => c,
         Err(_) => return false,
     };
-    client
-        .get(format!("{base_url}/speakers"))
-        .send()
-        .await
-        .is_ok()
+    check_engine_with_client(&client, base_url).await
 }
 
 /// VOICEVOXの実行ファイルをよく使われるインストール先から探す。
@@ -100,10 +109,13 @@ fn launch_voicevox(exe: &std::path::Path) -> Result<()> {
 
 /// エンジンが起動するまでポーリングして待機する。
 async fn wait_for_engine(base_url: &str) -> Result<()> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()?;
     let start = std::time::Instant::now();
     let deadline = std::time::Duration::from_secs(MAX_WAIT_SECS);
     loop {
-        if is_engine_running(base_url).await {
+        if check_engine_with_client(&client, base_url).await {
             return Ok(());
         }
         if start.elapsed() >= deadline {
@@ -125,8 +137,7 @@ pub async fn ensure_engine_running(base_url: &str) -> Result<()> {
 
     let exe = find_voicevox_executable().ok_or_else(|| {
         anyhow::anyhow!(
-            "VOICEVOXの実行ファイルが見つかりませんでした。\
-            VOICEVOXをインストールしてから再度お試しください。"
+            "VOICEVOXの実行ファイルが見つかりませんでした。\nVOICEVOXをインストールしてから再度お試しください。"
         )
     })?;
 
