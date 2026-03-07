@@ -70,6 +70,7 @@ pub async fn run(app: &mut App) -> Result<()> {
                         KeyCode::Char('z') => {
                             app.pending_d = false;
                             app.pending_z = true;
+                            app.pending_g = false;
                         }
                         KeyCode::Char('m') if app.pending_z => {
                             app.fold();
@@ -82,16 +83,37 @@ pub async fn run(app: &mut App) -> Result<()> {
                                 app.delete_current_line().await;
                             } else {
                                 app.pending_d = true;
+                                app.pending_z = false;
+                                app.pending_g = false;
                             }
+                        }
+                        KeyCode::Char('g') => {
+                            app.pending_d = false;
+                            app.pending_z = false;
+                            app.pending_g = true;
+                        }
+                        KeyCode::Char('t') if app.pending_g => {
+                            app.tab_next().await;
+                        }
+                        KeyCode::Char('T') if app.pending_g => {
+                            app.tab_prev().await;
+                        }
+                        KeyCode::Char(':') => {
+                            app.pending_d = false;
+                            app.pending_z = false;
+                            app.pending_g = false;
+                            app.command_buf = String::new();
+                            app.mode = Mode::Command;
                         }
                         KeyCode::Esc => {
                             // NormalモードでESCを押したら"q:quit"ヒントをハイライト表示する
                             const ESC_HINT_DURATION_MS: u64 = 1500;
                             app.pending_d = false;
                             app.pending_z = false;
+                            app.pending_g = false;
                             app.esc_hint_until = Some(Instant::now() + Duration::from_millis(ESC_HINT_DURATION_MS));
                         }
-                        _ => { app.pending_d = false; app.pending_z = false; }
+                        _ => { app.pending_d = false; app.pending_z = false; app.pending_g = false; }
                     }
                 }
             }
@@ -120,6 +142,28 @@ pub async fn run(app: &mut App) -> Result<()> {
                 let changed = app.textarea.input(input);
                 if changed {
                     app.on_edit_buf_changed().await;
+                }
+            }
+            Mode::Command => {
+                if let Event::Key(key) = ev {
+                    match key.code {
+                        KeyCode::Enter => {
+                            app.execute_command().await;
+                            app.command_buf = String::new();
+                            app.mode = Mode::Normal;
+                        }
+                        KeyCode::Esc => {
+                            app.command_buf = String::new();
+                            app.mode = Mode::Normal;
+                        }
+                        KeyCode::Backspace => {
+                            app.command_buf.pop();
+                        }
+                        KeyCode::Char(c) => {
+                            app.command_buf.push(c);
+                        }
+                        _ => {}
+                    }
                 }
             }
             Mode::UpdateAvailableDialog => {
