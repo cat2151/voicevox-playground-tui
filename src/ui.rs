@@ -80,9 +80,9 @@ fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
     }).collect();
 
     let title = match app.mode {
-        Mode::Normal => Span::styled(" ずんだもん [NORMAL] ", Style::default().fg(GREEN).bold()),
-        Mode::Insert => Span::styled(" ずんだもん [INSERT] ", Style::default().fg(CYAN).bold()),
-        _ => Span::styled(" ずんだもん [NORMAL] ", Style::default().fg(GREEN).bold()),
+        Mode::Normal => Span::styled(" [NORMAL] ", Style::default().fg(GREEN).bold()),
+        Mode::Insert => Span::styled(" [INSERT] ", Style::default().fg(CYAN).bold()),
+        _ => Span::styled(" [NORMAL] ", Style::default().fg(GREEN).bold()),
     };
     let border_color = match app.mode { Mode::Normal => DIM, Mode::Insert => CYAN, _ => DIM };
 
