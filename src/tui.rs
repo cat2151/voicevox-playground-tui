@@ -93,10 +93,10 @@ pub async fn run(app: &mut App) -> Result<()> {
                             app.pending_g = true;
                         }
                         KeyCode::Char('t') if app.pending_g => {
-                            app.tab_next().await;
+                            app.tab_next();
                         }
                         KeyCode::Char('T') if app.pending_g => {
-                            app.tab_prev().await;
+                            app.tab_prev();
                         }
                         KeyCode::Char(':') => {
                             app.pending_d = false;
@@ -146,20 +146,21 @@ pub async fn run(app: &mut App) -> Result<()> {
             }
             Mode::Command => {
                 if let Event::Key(key) = ev {
-                    match key.code {
-                        KeyCode::Enter => {
+                    match (key.code, key.modifiers) {
+                        (KeyCode::Enter, _) => {
                             app.execute_command().await;
                             app.command_buf = String::new();
                             app.mode = Mode::Normal;
                         }
-                        KeyCode::Esc => {
+                        (KeyCode::Esc, _) => {
                             app.command_buf = String::new();
                             app.mode = Mode::Normal;
                         }
-                        KeyCode::Backspace => {
+                        (KeyCode::Backspace, _) => {
                             app.command_buf.pop();
                         }
-                        KeyCode::Char(c) => {
+                        (KeyCode::Char(c), KeyModifiers::NONE)
+                        | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
                             app.command_buf.push(c);
                         }
                         _ => {}

@@ -67,8 +67,8 @@ pub struct App {
     bg_prefetch_handle: Option<JoinHandle<()>>,
     /// NormalモードでESCを押した際に"q:quit"ヒントをハイライト表示する期限
     pub esc_hint_until: Option<Instant>,
-    /// タブごとの (lines, cursor) を保存するリスト（アクティブタブ含む全タブ）
-    pub tabs:           Vec<(Vec<String>, usize)>,
+    /// タブごとの (lines, cursor, folded) を保存するリスト（アクティブタブ含む全タブ）
+    pub tabs:           Vec<(Vec<String>, usize, bool)>,
     /// 現在アクティブなタブのインデックス（0始まり）
     pub active_tab:     usize,
     /// コマンドモード（":tabnew" など）の入力バッファ
@@ -88,9 +88,9 @@ impl App {
         crate::fetch::spawn_worker(fetch_rx, Arc::clone(&cache), play_tx.clone(), Arc::clone(&is_fetching));
 
         let cursor = if lines.is_empty() { 0 } else { lines.len() - 1 };
-        // tabs[0] は最初のタブスイッチ時に save_current_tab() で上書きされるため、
-        // 初期値はプレースホルダー（実際のlinesはself.linesに保持される）。
-        let tabs = vec![(vec![], 0usize)];
+        // tabs[0] のlinesはプレースホルダー（実際のlinesはself.linesに保持される）。
+        // タブ切り替え時にmem::swapでlinesを交換するため、初期値は空vecで良い。
+        let tabs = vec![(vec![], 0usize, false)];
         Self {
             lines, cursor,
             textarea:      TextArea::default(),
@@ -361,10 +361,14 @@ impl App {
 
     // ── タブ操作 ───────────────────────────────────────────────────────────────
 
-    /// アクティブタブの現在の状態をtabsリストに保存する内部ヘルパー。
+    /// アクティブタブの現在状態をtabsスロットにswapで書き込む内部ヘルパー。
+    /// クローンを避けるため、self.linesとtabs[active_tab].0を入れ替える。
+    /// 呼び出し後、tabs[active_tab].0には正しいlinesが、self.linesには古いスロット値が入る。
     fn save_current_tab(&mut self) {
-        if self.active_tab < self.tabs.len() {
-            self.tabs[self.active_tab] = (self.lines.clone(), self.cursor);
+        if let Some((tab_lines, tab_cursor, tab_folded)) = self.tabs.get_mut(self.active_tab) {
+            std::mem::swap(&mut self.lines, tab_lines);
+            *tab_cursor  = self.cursor;
+            *tab_folded  = self.folded;
         }
     }
 
@@ -374,41 +378,48 @@ impl App {
         self.pending_z = false;
         self.pending_g = false;
         self.save_current_tab();
-        let new_lines = vec![String::new()];
-        let new_cursor = 0;
-        self.tabs.push((new_lines.clone(), new_cursor));
+        // 新タブ用の空エントリを追加し、アクティブにする
+        self.tabs.push((vec![], 0, false));
         self.active_tab = self.tabs.len() - 1;
-        self.lines  = new_lines;
-        self.cursor = new_cursor;
+        self.lines  = vec![String::new()];
+        self.cursor = 0;
+        self.folded = false;
+        self.restart_background_prefetch();
     }
 
     /// gt: 次のタブに移動する（最後のタブなら最初に戻る）。
-    pub async fn tab_next(&mut self) {
+    pub fn tab_next(&mut self) {
         self.pending_d = false;
         self.pending_z = false;
         self.pending_g = false;
         if self.tabs.len() <= 1 { return; }
+        // 現在タブをswapで保存
         self.save_current_tab();
+        // 次タブのlinesをmem::takeで取り出してself.linesに設定
         self.active_tab = (self.active_tab + 1) % self.tabs.len();
-        let (lines, cursor) = self.tabs[self.active_tab].clone();
-        self.lines  = lines;
-        self.cursor = cursor;
-        self.fetch_and_play(self.cursor).await;
+        self.lines  = std::mem::take(&mut self.tabs[self.active_tab].0);
+        self.cursor = self.tabs[self.active_tab].1;
+        self.folded = self.tabs[self.active_tab].2;
+        // 折りたたみ状態を復元した場合、カーソルが非表示行にある可能性を修正
+        self.normalize_cursor_for_fold();
         self.restart_background_prefetch();
     }
 
     /// gT: 前のタブに移動する（最初のタブなら最後に移動する）。
-    pub async fn tab_prev(&mut self) {
+    pub fn tab_prev(&mut self) {
         self.pending_d = false;
         self.pending_z = false;
         self.pending_g = false;
         if self.tabs.len() <= 1 { return; }
+        // 現在タブをswapで保存
         self.save_current_tab();
+        // 前タブのlinesをmem::takeで取り出してself.linesに設定
         self.active_tab = if self.active_tab == 0 { self.tabs.len() - 1 } else { self.active_tab - 1 };
-        let (lines, cursor) = self.tabs[self.active_tab].clone();
-        self.lines  = lines;
-        self.cursor = cursor;
-        self.fetch_and_play(self.cursor).await;
+        self.lines  = std::mem::take(&mut self.tabs[self.active_tab].0);
+        self.cursor = self.tabs[self.active_tab].1;
+        self.folded = self.tabs[self.active_tab].2;
+        // 折りたたみ状態を復元した場合、カーソルが非表示行にある可能性を修正
+        self.normalize_cursor_for_fold();
         self.restart_background_prefetch();
     }
 
@@ -417,7 +428,10 @@ impl App {
         let cmd = self.command_buf.trim().to_string();
         match cmd.as_str() {
             "tabnew" => self.tabnew(),
-            _ => {}
+            _ => {
+                // 未知のコマンドはステータスメッセージで明示的に知らせる。
+                self.status_msg = format!("Unknown command: {}", cmd);
+            }
         }
     }
 
