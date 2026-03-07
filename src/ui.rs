@@ -22,16 +22,33 @@ const CURSOR_INSERT:Color = Color::Rgb(102, 217, 232);
 pub fn draw(f: &mut Frame, app: &mut App) {
     f.render_widget(Block::default().style(Style::default().bg(BG)), f.area());
 
-    let chunks = Layout::vertical([
-        Constraint::Min(3),
-        Constraint::Length(1),
-    ])
-    .split(f.area());
+    let show_tabbar = app.tabs.len() > 1;
 
-    app.visible_lines = (chunks[0].height as usize).saturating_sub(2);
+    let chunks = if show_tabbar {
+        Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Min(3),
+            Constraint::Length(1),
+        ])
+        .split(f.area())
+    } else {
+        Layout::vertical([
+            Constraint::Min(3),
+            Constraint::Length(1),
+        ])
+        .split(f.area())
+    };
 
-    render_lines(f, app, chunks[0]);
-    render_status(f, app, chunks[1]);
+    if show_tabbar {
+        app.visible_lines = (chunks[1].height as usize).saturating_sub(2);
+        render_tab_bar(f, app, chunks[0]);
+        render_lines(f, app, chunks[1]);
+        render_status(f, app, chunks[2]);
+    } else {
+        app.visible_lines = (chunks[0].height as usize).saturating_sub(2);
+        render_lines(f, app, chunks[0]);
+        render_status(f, app, chunks[1]);
+    }
 
     // アップデートダイアログをオーバーレイとして描画する
     match app.mode {
@@ -43,9 +60,16 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
 fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
 
-
-    let cursor_bg = match app.mode { Mode::Normal => CURSOR_NORMAL, Mode::Insert => CURSOR_INSERT, _ => CURSOR_NORMAL };
-    let cursor_fg = match app.mode { Mode::Normal => FG,            Mode::Insert => BG,            _ => FG            };
+    let cursor_bg = match app.mode {
+        Mode::Normal | Mode::Command => CURSOR_NORMAL,
+        Mode::Insert => CURSOR_INSERT,
+        _ => CURSOR_NORMAL
+    };
+    let cursor_fg = match app.mode {
+        Mode::Normal | Mode::Command => FG,
+        Mode::Insert => BG,
+        _ => FG
+    };
 
     // リスト全体のRect（ボーダー内側）
     let inner = Rect {
@@ -94,11 +118,15 @@ fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
     }).collect();
 
     let title = match app.mode {
-        Mode::Normal => Span::styled(" [NORMAL] ", Style::default().fg(GREEN).bold()),
+        Mode::Normal | Mode::Command => Span::styled(" [NORMAL] ", Style::default().fg(GREEN).bold()),
         Mode::Insert => Span::styled(" [INSERT] ", Style::default().fg(CYAN).bold()),
         _ => Span::styled(" [NORMAL] ", Style::default().fg(GREEN).bold()),
     };
-    let border_color = match app.mode { Mode::Normal => DIM, Mode::Insert => CYAN, _ => DIM };
+    let border_color = match app.mode {
+        Mode::Normal | Mode::Command => DIM,
+        Mode::Insert => CYAN,
+        _ => DIM
+    };
 
     let list = List::new(items)
         .block(
@@ -138,11 +166,53 @@ fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
     }
 }
 
+fn render_tab_bar(f: &mut Frame, app: &App, area: Rect) {
+    let spans: Vec<Span> = (0..app.tabs.len())
+        .map(|i| {
+            let label = format!(" {} ", i + 1);
+            if i == app.active_tab {
+                Span::styled(label, Style::default().fg(BG).bg(YELLOW).bold())
+            } else {
+                Span::styled(label, Style::default().fg(DIM).bg(BG))
+            }
+        })
+        .collect();
+    let line = Line::from(spans);
+    f.render_widget(
+        Paragraph::new(line).style(Style::default().bg(BG)),
+        area,
+    );
+}
+
 fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
+    // コマンドモードは独自の表示
+    if app.mode == Mode::Command {
+        let cmd_display = format!(":{}", app.command_buf);
+        let hint = "Enter:execute  Esc:cancel";
+        let hint_width = hint.len() as u16 + 1;
+        let cols = Layout::horizontal([
+            Constraint::Min(0),
+            Constraint::Length(hint_width),
+        ]).split(area);
+        f.render_widget(
+            Paragraph::new(cmd_display)
+                .style(Style::default().fg(YELLOW).bg(BG)),
+            cols[0],
+        );
+        f.render_widget(
+            Paragraph::new(hint)
+                .style(Style::default().fg(DIM).bg(BG))
+                .alignment(Alignment::Right),
+            cols[1],
+        );
+        return;
+    }
+
     let hint = match app.mode {
         Mode::Normal => "j/k:move  i:edit  o/O:newline  dd:delete  p/P:paste  zm/zr:fold  Space/Enter:play  q:quit",
         Mode::Insert => "^A:home  ^E:end  ^K:kill  ^W:del-word  Esc/Enter:confirm",
         Mode::UpdateAvailableDialog | Mode::QuitWithUpdateDialog => "",
+        Mode::Command => "",
     };
     let hint_width = hint.len() as u16 + 1;
 
@@ -151,7 +221,11 @@ fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
         Constraint::Length(hint_width),
     ]).split(area);
 
-    let status_color = match app.mode { Mode::Normal => YELLOW, Mode::Insert => CYAN, _ => YELLOW };
+    let status_color = match app.mode {
+        Mode::Normal | Mode::Command => YELLOW,
+        Mode::Insert => CYAN,
+        _ => YELLOW
+    };
     f.render_widget(
         Paragraph::new(app.status_display())
             .style(Style::default().fg(status_color).bg(BG)),
