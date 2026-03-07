@@ -55,9 +55,25 @@ fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
         height: area.height.saturating_sub(2),
     };
 
-    let items: Vec<ListItem> = app.lines.iter().enumerate().map(|(i, line)| {
+    // 折りたたみ時は行頭spaceのある行を非表示にする
+    let visible_indices = app.visible_line_indices();
+
+    // 表示リスト内でのカーソル位置
+    let visible_cursor = visible_indices.iter()
+        .position(|&i| i == app.cursor)
+        .unwrap_or(0);
+
+    let items: Vec<ListItem> = visible_indices.iter().map(|&i| {
+        let line = &app.lines[i];
         let cached_mark = if app.cache.lock().unwrap().contains_key(line.as_str()) { "♪ " } else { "  " };
-        let line_num = format!("{:>4}  ", i + 1);
+
+        // 折りたたみ時：次の行が行頭spaceなら"+"インジケータを表示する
+        let fold_mark = if app.folded && app.lines.get(i + 1).map(|l| l.starts_with(' ')).unwrap_or(false) {
+            "+"
+        } else {
+            " "
+        };
+        let line_num = format!("{}{:>4} ", fold_mark, i + 1);
 
         // Insertモードのカーソル行はtextareaが別途描画するので、プレースホルダにする
         let body = if app.mode == Mode::Insert && i == app.cursor {
@@ -97,7 +113,7 @@ fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
         .highlight_symbol(">> ");
 
     let mut state = ListState::default();
-    state.select(Some(app.cursor));
+    state.select(Some(visible_cursor));
     f.render_stateful_widget(list, area, &mut state);
 
     // Insertモード: カーソル行にtextareaを重ねて描画する
@@ -105,8 +121,8 @@ fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
         // render_stateful_widget後のstate.offset()がratatuiの実際のスクロール位置
         let win_start = state.offset();
         // スクロール後の画面上の行位置を計算する
-        if app.cursor >= win_start {
-            let row_in_inner = (app.cursor - win_start) as u16;
+        if visible_cursor >= win_start {
+            let row_in_inner = (visible_cursor - win_start) as u16;
             if row_in_inner < inner.height {
                 // 行番号分(7文字)だけ右にオフセット
                 let ta_x      = inner.x + 7;
@@ -126,7 +142,7 @@ fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
 
 fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
     let hint = match app.mode {
-        Mode::Normal => "j/k:move  i:edit  o/O:newline  dd:delete  p/P:paste  Space/Enter:play  q:quit",
+        Mode::Normal => "j/k:move  i:edit  o/O:newline  dd:delete  p/P:paste  zm/zr:fold  Space/Enter:play  q:quit",
         Mode::Insert => "^A:home  ^E:end  ^K:kill  ^W:del-word  Esc/Enter:confirm",
         Mode::UpdateAvailableDialog | Mode::QuitWithUpdateDialog => "",
     };

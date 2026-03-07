@@ -67,6 +67,16 @@ pub async fn run(app: &mut App) -> Result<()> {
                         KeyCode::Enter | KeyCode::Char(' ') => app.play_current().await,
                         KeyCode::Char('p') => app.paste_below().await,
                         KeyCode::Char('P') => app.paste_above().await,
+                        KeyCode::Char('z') => {
+                            app.pending_d = false;
+                            app.pending_z = true;
+                        }
+                        KeyCode::Char('m') if app.pending_z => {
+                            app.fold();
+                        }
+                        KeyCode::Char('r') if app.pending_z => {
+                            app.unfold();
+                        }
                         KeyCode::Char('d') => {
                             if app.pending_d {
                                 app.delete_current_line().await;
@@ -78,9 +88,10 @@ pub async fn run(app: &mut App) -> Result<()> {
                             // NormalモードでESCを押したら"q:quit"ヒントをハイライト表示する
                             const ESC_HINT_DURATION_MS: u64 = 1500;
                             app.pending_d = false;
+                            app.pending_z = false;
                             app.esc_hint_until = Some(Instant::now() + Duration::from_millis(ESC_HINT_DURATION_MS));
                         }
-                        _ => { app.pending_d = false; }
+                        _ => { app.pending_d = false; app.pending_z = false; }
                     }
                 }
             }

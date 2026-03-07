@@ -46,7 +46,11 @@ pub struct App {
     pub play_tx:       mpsc::Sender<Vec<u8>>,
     pub visible_lines: usize,
     pub pending_d:     bool,
+    /// "z"キー待機中（zm/zrのプレフィックス）
+    pub pending_z:     bool,
     pub yank_buf:      Option<String>,
+    /// 折りたたみ中かどうか（行頭spaceのある行を非表示にする）
+    pub folded:        bool,
     /// fetchワーカーがAPI呼び出し中かどうか
     pub is_fetching:   IsFetching,
     /// アップデートが利用可能かどうか（バックグラウンドチェックがセットする）
@@ -83,7 +87,9 @@ impl App {
             fetch_tx, play_tx,
             visible_lines: 24,
             pending_d:     false,
+            pending_z:     false,
             yank_buf:      None,
+            folded:        false,
             is_fetching,
             update_available: Arc::new(AtomicBool::new(false)),
             update_dismissed: false,
@@ -101,11 +107,32 @@ impl App {
 
     // ── Normal mode ───────────────────────────────────────────────────────────
 
+    /// 折りたたみ状態を考慮した表示行インデックスのリストを返す。
+    pub fn visible_line_indices(&self) -> Vec<usize> {
+        if self.folded {
+            (0..self.lines.len())
+                .filter(|&i| !self.lines[i].starts_with(' '))
+                .collect()
+        } else {
+            (0..self.lines.len()).collect()
+        }
+    }
+
     pub async fn move_cursor(&mut self, delta: i32) {
         self.pending_d = false;
+        self.pending_z = false;
         if self.lines.is_empty() { return; }
-        let next = (self.cursor as i32 + delta)
-            .clamp(0, self.lines.len() as i32 - 1) as usize;
+        let next = if self.folded {
+            let visible = self.visible_line_indices();
+            if visible.is_empty() { return; }
+            let vis_pos = visible.iter().position(|&i| i == self.cursor).unwrap_or(0);
+            let next_vis = (vis_pos as i32 + delta)
+                .clamp(0, visible.len() as i32 - 1) as usize;
+            visible[next_vis]
+        } else {
+            (self.cursor as i32 + delta)
+                .clamp(0, self.lines.len() as i32 - 1) as usize
+        };
         if next != self.cursor {
             self.cursor = next;
             self.fetch_and_play(self.cursor).await;
@@ -113,13 +140,39 @@ impl App {
         }
     }
 
+    /// zm: 折りたたみ。行頭に半角spaceのある行を非表示にする。
+    pub fn fold(&mut self) {
+        self.pending_d = false;
+        self.pending_z = false;
+        self.folded = true;
+        // カーソルが非表示行にある場合、直前の表示行に移動する
+        let visible = self.visible_line_indices();
+        if !visible.is_empty() && !visible.contains(&self.cursor) {
+            let new_cursor = visible.iter().rev().find(|&&i| i < self.cursor)
+                .or_else(|| visible.first())
+                .copied();
+            if let Some(c) = new_cursor {
+                self.cursor = c;
+            }
+        }
+    }
+
+    /// zr: 折りたたみを開く。すべての行を表示する。
+    pub fn unfold(&mut self) {
+        self.pending_d = false;
+        self.pending_z = false;
+        self.folded = false;
+    }
+
     pub async fn play_current(&mut self) {
         self.pending_d = false;
+        self.pending_z = false;
         self.fetch_and_play(self.cursor).await;
     }
 
     pub async fn delete_current_line(&mut self) {
         self.pending_d = false;
+        self.pending_z = false;
         self.yank_buf = Some(self.lines.get(self.cursor).cloned().unwrap_or_default());
         if self.lines.len() <= 1 {
             self.lines  = vec![String::new()];
@@ -134,6 +187,7 @@ impl App {
 
     pub async fn paste_below(&mut self) {
         self.pending_d = false;
+        self.pending_z = false;
         let text = match &self.yank_buf { Some(t) => t.clone(), None => return };
         self.lines.insert(self.cursor + 1, text);
         self.cursor += 1;
@@ -143,6 +197,7 @@ impl App {
 
     pub async fn paste_above(&mut self) {
         self.pending_d = false;
+        self.pending_z = false;
         let text = match &self.yank_buf { Some(t) => t.clone(), None => return };
         self.lines.insert(self.cursor, text);
         self.fetch_and_play(self.cursor).await;
@@ -154,6 +209,7 @@ impl App {
     /// i: 現在行を編集。現在行が空なら1つ上の行の末尾コンテキストを継承する。
     pub fn enter_insert_current(&mut self) {
         self.pending_d = false;
+        self.pending_z = false;
         let current = self.lines.get(self.cursor).cloned().unwrap_or_default();
         let text = if current.trim().is_empty() {
             // 空行なら1つ上の行のコンテキストを継承
@@ -175,6 +231,7 @@ impl App {
     /// o: 現在行の下に空行を挿入。現在行の末尾コンテキストを継承。
     pub fn enter_insert_below(&mut self) {
         self.pending_d = false;
+        self.pending_z = false;
         let prefix = self.lines.get(self.cursor)
             .map(|l| tag::ctx_to_prefix(&tag::tail_ctx(l)))
             .unwrap_or_default();
@@ -188,6 +245,7 @@ impl App {
     /// O: 現在行の上に空行を挿入。1つ上の行の末尾コンテキストを継承。
     pub fn enter_insert_above(&mut self) {
         self.pending_d = false;
+        self.pending_z = false;
         let prefix = if self.cursor > 0 {
             self.lines.get(self.cursor - 1)
                 .map(|l| tag::ctx_to_prefix(&tag::tail_ctx(l)))
