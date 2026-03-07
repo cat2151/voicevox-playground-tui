@@ -118,6 +118,21 @@ impl App {
         }
     }
 
+    /// 表示行リスト内でのカーソル位置を返す（非表示行の場合は最近傍の表示行位置）。
+    pub fn vis_cursor_pos(&self) -> usize {
+        nearest_vis_pos(self.cursor, &self.visible_line_indices())
+    }
+
+    /// 折りたたみ時にカーソルが非表示行にある場合、最も近い表示行に移動する。
+    fn normalize_cursor_for_fold(&mut self) {
+        if !self.folded { return; }
+        let visible = self.visible_line_indices();
+        if visible.is_empty() || visible.contains(&self.cursor) { return; }
+        if let Some(&c) = visible.get(nearest_vis_pos(self.cursor, &visible)) {
+            self.cursor = c;
+        }
+    }
+
     pub async fn move_cursor(&mut self, delta: i32) {
         self.pending_d = false;
         self.pending_z = false;
@@ -125,7 +140,8 @@ impl App {
         let next = if self.folded {
             let visible = self.visible_line_indices();
             if visible.is_empty() { return; }
-            let vis_pos = visible.iter().position(|&i| i == self.cursor).unwrap_or(0);
+            // カーソルが非表示行にある場合は最も近い表示行の位置から動かす
+            let vis_pos = nearest_vis_pos(self.cursor, &visible);
             let next_vis = (vis_pos as i32 + delta)
                 .clamp(0, visible.len() as i32 - 1) as usize;
             visible[next_vis]
@@ -191,6 +207,8 @@ impl App {
         let text = match &self.yank_buf { Some(t) => t.clone(), None => return };
         self.lines.insert(self.cursor + 1, text);
         self.cursor += 1;
+        // 折りたたみ時、カーソルが非表示行（行頭space）になる場合は最も近い表示行へ移動する
+        self.normalize_cursor_for_fold();
         self.fetch_and_play(self.cursor).await;
         self.restart_background_prefetch();
     }
@@ -200,6 +218,8 @@ impl App {
         self.pending_z = false;
         let text = match &self.yank_buf { Some(t) => t.clone(), None => return };
         self.lines.insert(self.cursor, text);
+        // 折りたたみ時、カーソルが非表示行（行頭space）になる場合は最も近い表示行へ移動する
+        self.normalize_cursor_for_fold();
         self.fetch_and_play(self.cursor).await;
         self.restart_background_prefetch();
     }
@@ -334,13 +354,24 @@ impl App {
             h.abort();
         }
         let cursor_text = self.lines.get(self.cursor).cloned().unwrap_or_default();
-        // 全行ではなく表示ウィンドウ内の対象行のみをcloneして渡す
-        let target_texts = background_prefetch::compute_prefetch_targets(
-            self.cursor, self.visible_lines, &self.lines,
-        )
-        .into_iter()
-        .map(|idx| self.lines[idx].clone())
-        .collect();
+        // 折りたたみ時は表示行のみをprefetch対象とする
+        let target_texts: Vec<String> = if self.folded {
+            let visible_indices = self.visible_line_indices();
+            let visible_texts: Vec<String> = visible_indices.iter().map(|&i| self.lines[i].clone()).collect();
+            let vis_cursor = nearest_vis_pos(self.cursor, &visible_indices);
+            background_prefetch::compute_prefetch_targets(vis_cursor, self.visible_lines, &visible_texts)
+                .into_iter()
+                .map(|idx| visible_texts[idx].clone())
+                .collect()
+        } else {
+            // 全行ではなく表示ウィンドウ内の対象行のみをcloneして渡す
+            background_prefetch::compute_prefetch_targets(
+                self.cursor, self.visible_lines, &self.lines,
+            )
+            .into_iter()
+            .map(|idx| self.lines[idx].clone())
+            .collect()
+        };
         self.bg_prefetch_handle = Some(background_prefetch::spawn_background_prefetch(
             cursor_text,
             target_texts,
@@ -368,4 +399,21 @@ fn make_textarea(initial: String) -> TextArea<'static> {
     let mut ta = TextArea::new(vec![initial]);
     ta.move_cursor(tui_textarea::CursorMove::End);
     ta
+}
+
+/// 表示行インデックスリスト内で `cursor`（実行インデックス）に最も近い位置を返す。
+/// `cursor` が `visible` に含まれる場合はその位置、含まれない場合は距離が最小の位置を返す。
+fn nearest_vis_pos(cursor: usize, visible: &[usize]) -> usize {
+    visible.iter()
+        .position(|&i| i == cursor)
+        .unwrap_or_else(|| {
+            visible.iter()
+                .enumerate()
+                .min_by_key(|(_, &i)| {
+                    let diff = i as isize - cursor as isize;
+                    diff.unsigned_abs()
+                })
+                .map(|(idx, _)| idx)
+                .unwrap_or(0)
+        })
 }

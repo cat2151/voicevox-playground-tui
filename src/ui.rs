@@ -58,10 +58,8 @@ fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
     // 折りたたみ時は行頭spaceのある行を非表示にする
     let visible_indices = app.visible_line_indices();
 
-    // 表示リスト内でのカーソル位置
-    let visible_cursor = visible_indices.iter()
-        .position(|&i| i == app.cursor)
-        .unwrap_or(0);
+    // 表示リスト内でのカーソル位置（非表示行の場合は最近傍の表示行位置）
+    let visible_cursor = app.vis_cursor_pos();
 
     let items: Vec<ListItem> = visible_indices.iter().map(|&i| {
         let line = &app.lines[i];
