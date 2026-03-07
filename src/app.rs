@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 
 use tokio::sync::mpsc;
@@ -56,6 +57,8 @@ pub struct App {
     pub update_action: Option<UpdateAction>,
     /// バックグラウンドprefetchタスクのハンドル（カーソル移動時にキャンセル）
     bg_prefetch_handle: Option<JoinHandle<()>>,
+    /// NormalモードでESCを押した際に"q:quit"ヒントをハイライト表示する期限
+    pub esc_hint_until: Option<Instant>,
 }
 
 impl App {
@@ -86,6 +89,7 @@ impl App {
             update_dismissed: false,
             update_action: None,
             bg_prefetch_handle: None,
+            esc_hint_until: None,
         }
     }
 
