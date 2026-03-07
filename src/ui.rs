@@ -159,6 +159,7 @@ fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
             ]);
             f.render_widget(
                 Paragraph::new(hint_line)
+                    .style(Style::default().fg(DIM).bg(BG))
                     .alignment(Alignment::Right),
                 cols[1],
             );
