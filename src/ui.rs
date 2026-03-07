@@ -55,8 +55,6 @@ fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
         height: area.height.saturating_sub(2),
     };
 
-    let win_start = self_cursor_win_start(app.cursor, inner.height as usize, app.lines.len());
-
     let items: Vec<ListItem> = app.lines.iter().enumerate().map(|(i, line)| {
         let cached_mark = if app.cache.lock().unwrap().contains_key(line.as_str()) { "♪ " } else { "  " };
         let line_num = format!("{:>4}  ", i + 1);
@@ -104,6 +102,8 @@ fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
 
     // Insertモード: カーソル行にtextareaを重ねて描画する
     if app.mode == Mode::Insert {
+        // render_stateful_widget後のstate.offset()がratatuiの実際のスクロール位置
+        let win_start = state.offset();
         // スクロール後の画面上の行位置を計算する
         if app.cursor >= win_start {
             let row_in_inner = (app.cursor - win_start) as u16;
@@ -122,15 +122,6 @@ fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
             }
         }
     }
-}
-
-/// ratatuiのList自動スクロールと同じwindow startを計算する
-fn self_cursor_win_start(cursor: usize, height: usize, len: usize) -> usize {
-    if height == 0 || len == 0 { return 0; }
-    let half      = height / 2;
-    let win_start = cursor.saturating_sub(half);
-    let win_end   = (win_start + height).min(len);
-    win_end.saturating_sub(height)
 }
 
 fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
