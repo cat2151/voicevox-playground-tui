@@ -156,12 +156,18 @@ impl App {
         }
     }
 
-    pub async fn move_cursor(&mut self, delta: i32) {
+    /// すべての pending プレフィックスフラグをリセットする。
+    /// キーハンドラおよびアクションメソッドの冒頭で呼ぶ共通ヘルパー。
+    pub fn reset_pending_prefixes(&mut self) {
         self.pending_d = false;
         self.pending_z = false;
         self.pending_g = false;
         self.pending_quote = false;
         self.pending_clipboard = false;
+    }
+
+    pub async fn move_cursor(&mut self, delta: i32) {
+        self.reset_pending_prefixes();
         if self.lines.is_empty() { return; }
         let next = if self.folded {
             let visible = self.visible_line_indices();
@@ -184,11 +190,7 @@ impl App {
 
     /// zm: 折りたたみ。行頭に半角spaceのある行を非表示にする。
     pub fn fold(&mut self) {
-        self.pending_d = false;
-        self.pending_z = false;
-        self.pending_g = false;
-        self.pending_quote = false;
-        self.pending_clipboard = false;
+        self.reset_pending_prefixes();
         self.folded = true;
         // カーソルが非表示行にある場合、直前の表示行に移動する
         let visible = self.visible_line_indices();
@@ -204,29 +206,17 @@ impl App {
 
     /// zr: 折りたたみを開く。すべての行を表示する。
     pub fn unfold(&mut self) {
-        self.pending_d = false;
-        self.pending_z = false;
-        self.pending_g = false;
-        self.pending_quote = false;
-        self.pending_clipboard = false;
+        self.reset_pending_prefixes();
         self.folded = false;
     }
 
     pub async fn play_current(&mut self) {
-        self.pending_d = false;
-        self.pending_z = false;
-        self.pending_g = false;
-        self.pending_quote = false;
-        self.pending_clipboard = false;
+        self.reset_pending_prefixes();
         self.fetch_and_play(self.cursor).await;
     }
 
     pub async fn delete_current_line(&mut self) {
-        self.pending_d = false;
-        self.pending_z = false;
-        self.pending_g = false;
-        self.pending_quote = false;
-        self.pending_clipboard = false;
+        self.reset_pending_prefixes();
         self.yank_buf = Some(self.lines.get(self.cursor).cloned().unwrap_or_default());
         if self.lines.len() <= 1 {
             self.lines  = vec![String::new()];
@@ -240,11 +230,7 @@ impl App {
     }
 
     pub async fn paste_below(&mut self) {
-        self.pending_d = false;
-        self.pending_z = false;
-        self.pending_g = false;
-        self.pending_quote = false;
-        self.pending_clipboard = false;
+        self.reset_pending_prefixes();
         let text = match &self.yank_buf { Some(t) => t.clone(), None => return };
         self.lines.insert(self.cursor + 1, text);
         self.cursor += 1;
@@ -255,11 +241,7 @@ impl App {
     }
 
     pub async fn paste_above(&mut self) {
-        self.pending_d = false;
-        self.pending_z = false;
-        self.pending_g = false;
-        self.pending_quote = false;
-        self.pending_clipboard = false;
+        self.reset_pending_prefixes();
         let text = match &self.yank_buf { Some(t) => t.clone(), None => return };
         self.lines.insert(self.cursor, text);
         // 折りたたみ時、カーソルが非表示行（行頭space）になる場合は最も近い表示行へ移動する
@@ -270,24 +252,13 @@ impl App {
 
     /// "+p: システムクリップボードの内容を現在行の下に貼り付ける。
     pub async fn paste_below_from_clipboard(&mut self) {
-        self.pending_d = false;
-        self.pending_z = false;
-        self.pending_g = false;
-        self.pending_quote = false;
-        self.pending_clipboard = false;
-        let text = match arboard::Clipboard::new().ok().and_then(|mut c| c.get_text().ok()) {
-            Some(t) => t,
-            None => {
-                self.status_msg = String::from("[clipboard] failed to read");
-                return;
-            }
-        };
-        let clip_lines: Vec<String> = text.lines().map(|l| l.to_string()).collect();
+        self.reset_pending_prefixes();
+        let clip_lines = match self.read_clipboard_lines() { Ok(l) => l, Err(()) => return };
         if clip_lines.is_empty() { return; }
         let insert_pos = self.cursor + 1;
-        for (i, line) in clip_lines.iter().enumerate() {
-            self.lines.insert(insert_pos + i, line.clone());
-        }
+        let tail = self.lines.split_off(insert_pos);
+        self.lines.extend(clip_lines);
+        self.lines.extend(tail);
         self.cursor = insert_pos;
         self.normalize_cursor_for_fold();
         self.fetch_and_play(self.cursor).await;
@@ -296,37 +267,42 @@ impl App {
 
     /// "+P: システムクリップボードの内容を現在行の上に貼り付ける。
     pub async fn paste_above_from_clipboard(&mut self) {
-        self.pending_d = false;
-        self.pending_z = false;
-        self.pending_g = false;
-        self.pending_quote = false;
-        self.pending_clipboard = false;
-        let text = match arboard::Clipboard::new().ok().and_then(|mut c| c.get_text().ok()) {
-            Some(t) => t,
-            None => {
-                self.status_msg = String::from("[clipboard] failed to read");
-                return;
-            }
-        };
-        let clip_lines: Vec<String> = text.lines().map(|l| l.to_string()).collect();
+        self.reset_pending_prefixes();
+        let clip_lines = match self.read_clipboard_lines() { Ok(l) => l, Err(()) => return };
         if clip_lines.is_empty() { return; }
-        for (i, line) in clip_lines.iter().enumerate() {
-            self.lines.insert(self.cursor + i, line.clone());
-        }
+        let tail = self.lines.split_off(self.cursor);
+        self.lines.extend(clip_lines);
+        self.lines.extend(tail);
         self.normalize_cursor_for_fold();
         self.fetch_and_play(self.cursor).await;
         self.restart_background_prefetch();
+    }
+
+    /// システムクリップボードからテキストを読み込み、行に分割して返す。
+    /// 失敗した場合は `status_msg` にエラーメッセージを設定して `Err(())` を返す。
+    fn read_clipboard_lines(&mut self) -> Result<Vec<String>, ()> {
+        let mut cb = match arboard::Clipboard::new() {
+            Ok(c) => c,
+            Err(e) => {
+                self.status_msg = format!("[clipboard] init failed: {}", e);
+                return Err(());
+            }
+        };
+        let text = match cb.get_text() {
+            Ok(t) => t,
+            Err(e) => {
+                self.status_msg = format!("[clipboard] read failed: {}", e);
+                return Err(());
+            }
+        };
+        Ok(text.lines().map(|l| l.to_string()).collect())
     }
 
     // ── Insert mode ───────────────────────────────────────────────────────────
 
     /// i: 現在行を編集。現在行が空なら1つ上の行の末尾コンテキストを継承する。
     pub fn enter_insert_current(&mut self) {
-        self.pending_d = false;
-        self.pending_z = false;
-        self.pending_g = false;
-        self.pending_quote = false;
-        self.pending_clipboard = false;
+        self.reset_pending_prefixes();
         let current = self.lines.get(self.cursor).cloned().unwrap_or_default();
         let text = if current.trim().is_empty() {
             // 空行なら1つ上の行のコンテキストを継承
@@ -347,11 +323,7 @@ impl App {
 
     /// o: 現在行の下に空行を挿入。現在行の末尾コンテキストを継承。
     pub fn enter_insert_below(&mut self) {
-        self.pending_d = false;
-        self.pending_z = false;
-        self.pending_g = false;
-        self.pending_quote = false;
-        self.pending_clipboard = false;
+        self.reset_pending_prefixes();
         let prefix = self.lines.get(self.cursor)
             .map(|l| tag::ctx_to_prefix(&tag::tail_ctx(l)))
             .unwrap_or_default();
@@ -364,11 +336,7 @@ impl App {
 
     /// O: 現在行の上に空行を挿入。1つ上の行の末尾コンテキストを継承。
     pub fn enter_insert_above(&mut self) {
-        self.pending_d = false;
-        self.pending_z = false;
-        self.pending_g = false;
-        self.pending_quote = false;
-        self.pending_clipboard = false;
+        self.reset_pending_prefixes();
         let prefix = if self.cursor > 0 {
             self.lines.get(self.cursor - 1)
                 .map(|l| tag::ctx_to_prefix(&tag::tail_ctx(l)))
@@ -450,11 +418,7 @@ impl App {
 
     /// :tabnew: 新しい空タブを作成してそこに移動する。
     pub fn tabnew(&mut self) {
-        self.pending_d = false;
-        self.pending_z = false;
-        self.pending_g = false;
-        self.pending_quote = false;
-        self.pending_clipboard = false;
+        self.reset_pending_prefixes();
         self.save_current_tab();
         // 新タブ用の空エントリを追加し、アクティブにする
         self.tabs.push((vec![], 0, false));
@@ -467,11 +431,7 @@ impl App {
 
     /// gt: 次のタブに移動する（最後のタブなら最初に戻る）。
     pub fn tab_next(&mut self) {
-        self.pending_d = false;
-        self.pending_z = false;
-        self.pending_g = false;
-        self.pending_quote = false;
-        self.pending_clipboard = false;
+        self.reset_pending_prefixes();
         if self.tabs.len() <= 1 { return; }
         // 現在タブをswapで保存
         self.save_current_tab();
@@ -487,11 +447,7 @@ impl App {
 
     /// gT: 前のタブに移動する（最初のタブなら最後に移動する）。
     pub fn tab_prev(&mut self) {
-        self.pending_d = false;
-        self.pending_z = false;
-        self.pending_g = false;
-        self.pending_quote = false;
-        self.pending_clipboard = false;
+        self.reset_pending_prefixes();
         if self.tabs.len() <= 1 { return; }
         // 現在タブをswapで保存
         self.save_current_tab();

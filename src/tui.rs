@@ -70,10 +70,7 @@ pub async fn run(app: &mut App) -> Result<()> {
                         KeyCode::Char('p') => app.paste_below().await,
                         KeyCode::Char('P') => app.paste_above().await,
                         KeyCode::Char('"') => {
-                            app.pending_d = false;
-                            app.pending_z = false;
-                            app.pending_g = false;
-                            app.pending_clipboard = false;
+                            app.reset_pending_prefixes();
                             app.pending_quote = true;
                         }
                         KeyCode::Char('+') if app.pending_quote => {
@@ -81,11 +78,8 @@ pub async fn run(app: &mut App) -> Result<()> {
                             app.pending_clipboard = true;
                         }
                         KeyCode::Char('z') => {
-                            app.pending_d = false;
+                            app.reset_pending_prefixes();
                             app.pending_z = true;
-                            app.pending_g = false;
-                            app.pending_quote = false;
-                            app.pending_clipboard = false;
                         }
                         KeyCode::Char('m') if app.pending_z => {
                             app.fold();
@@ -97,19 +91,13 @@ pub async fn run(app: &mut App) -> Result<()> {
                             if app.pending_d {
                                 app.delete_current_line().await;
                             } else {
+                                app.reset_pending_prefixes();
                                 app.pending_d = true;
-                                app.pending_z = false;
-                                app.pending_g = false;
-                                app.pending_quote = false;
-                                app.pending_clipboard = false;
                             }
                         }
                         KeyCode::Char('g') => {
-                            app.pending_d = false;
-                            app.pending_z = false;
+                            app.reset_pending_prefixes();
                             app.pending_g = true;
-                            app.pending_quote = false;
-                            app.pending_clipboard = false;
                         }
                         KeyCode::Char('t') if app.pending_g => {
                             app.tab_next();
@@ -118,25 +106,17 @@ pub async fn run(app: &mut App) -> Result<()> {
                             app.tab_prev();
                         }
                         KeyCode::Char(':') => {
-                            app.pending_d = false;
-                            app.pending_z = false;
-                            app.pending_g = false;
-                            app.pending_quote = false;
-                            app.pending_clipboard = false;
+                            app.reset_pending_prefixes();
                             app.command_buf = String::new();
                             app.mode = Mode::Command;
                         }
                         KeyCode::Esc => {
                             // NormalモードでESCを押したら"q:quit"ヒントをハイライト表示する
                             const ESC_HINT_DURATION_MS: u64 = 1500;
-                            app.pending_d = false;
-                            app.pending_z = false;
-                            app.pending_g = false;
-                            app.pending_quote = false;
-                            app.pending_clipboard = false;
+                            app.reset_pending_prefixes();
                             app.esc_hint_until = Some(Instant::now() + Duration::from_millis(ESC_HINT_DURATION_MS));
                         }
-                        _ => { app.pending_d = false; app.pending_z = false; app.pending_g = false; app.pending_quote = false; app.pending_clipboard = false; }
+                        _ => { app.reset_pending_prefixes(); }
                     }
                 }
             }
