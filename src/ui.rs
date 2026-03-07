@@ -143,12 +143,42 @@ fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
             .style(Style::default().fg(status_color).bg(BG)),
         cols[0],
     );
-    f.render_widget(
-        Paragraph::new(hint)
-            .style(Style::default().fg(DIM).bg(BG))
-            .alignment(Alignment::Right),
-        cols[1],
-    );
+
+    // NormalモードでESCが押された直後は"q:quit"をハイライト表示する
+    let esc_hint_active = app.mode == Mode::Normal
+        && app.esc_hint_until
+            .map(|until| until > std::time::Instant::now())
+            .unwrap_or(false);
+
+    if esc_hint_active {
+        const QUIT_HINT: &str = "q:quit";
+        if let Some(prefix) = hint.strip_suffix(QUIT_HINT) {
+            let hint_line = Line::from(vec![
+                Span::styled(prefix, Style::default().fg(DIM).bg(BG)),
+                Span::styled(QUIT_HINT, Style::default().fg(YELLOW).bg(BG).bold()),
+            ]);
+            f.render_widget(
+                Paragraph::new(hint_line)
+                    .style(Style::default().fg(DIM).bg(BG))
+                    .alignment(Alignment::Right),
+                cols[1],
+            );
+        } else {
+            f.render_widget(
+                Paragraph::new(hint)
+                    .style(Style::default().fg(DIM).bg(BG))
+                    .alignment(Alignment::Right),
+                cols[1],
+            );
+        }
+    } else {
+        f.render_widget(
+            Paragraph::new(hint)
+                .style(Style::default().fg(DIM).bg(BG))
+                .alignment(Alignment::Right),
+            cols[1],
+        );
+    }
 }
 
 /// ダイアログ用の中央配置Rectを計算する

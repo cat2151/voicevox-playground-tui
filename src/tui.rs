@@ -2,7 +2,7 @@
 
 use std::io;
 use std::sync::atomic::Ordering;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use crossterm::{
@@ -73,6 +73,12 @@ pub async fn run(app: &mut App) -> Result<()> {
                             } else {
                                 app.pending_d = true;
                             }
+                        }
+                        KeyCode::Esc => {
+                            // NormalモードでESCを押したら"q:quit"ヒントをハイライト表示する
+                            const ESC_HINT_DURATION_MS: u64 = 1500;
+                            app.pending_d = false;
+                            app.esc_hint_until = Some(Instant::now() + Duration::from_millis(ESC_HINT_DURATION_MS));
                         }
                         _ => { app.pending_d = false; }
                     }
