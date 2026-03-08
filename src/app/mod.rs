@@ -87,6 +87,8 @@ pub struct App {
     bg_prefetch_handle: Option<JoinHandle<()>>,
     /// NormalモードでESCを押した際に"q:quit"ヒントをハイライト表示する期限
     pub esc_hint_until: Option<Instant>,
+    /// 最後にオートセーブを実行した時刻
+    pub last_autosave: Instant,
     /// Normalモードの数値プレフィックスバッファ（例: "10j" の "10" 部分）
     pub count_buf: String,
     /// タブごとの (lines, line_intonations, cursor, folded) を保存するリスト（アクティブタブ含む全タブ）
@@ -194,6 +196,7 @@ impl App {
             update_action: None,
             bg_prefetch_handle: None,
             esc_hint_until: None,
+            last_autosave: Instant::now(),
             count_buf: String::new(),
             tabs,
             active_tab:    0,

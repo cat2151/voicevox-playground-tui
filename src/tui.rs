@@ -34,10 +34,18 @@ pub async fn run(app: &mut App) -> Result<()> {
     }
     let _guard = TerminalGuard;
 
+    const AUTO_SAVE_INTERVAL: Duration = Duration::from_secs(60);
+
     loop {
         // イントネーション編集モードのデバウンス再生チェック（100msポーリング周期）
         if app.mode == Mode::Intonation {
             app.intonation_play_if_debounced().await;
+        }
+
+        // 1分ごとにオートセーブする
+        if app.last_autosave.elapsed() >= AUTO_SAVE_INTERVAL {
+            let _ = crate::history::save_all(&app.all_tab_lines());
+            app.last_autosave = Instant::now();
         }
 
         terminal.draw(|f| ui::draw(f, app))?;
