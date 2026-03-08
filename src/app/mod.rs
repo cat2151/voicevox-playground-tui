@@ -245,10 +245,17 @@ impl App {
         if index >= self.lines.len() || self.lines[index].trim().is_empty() { return; }
         let text = self.lines[index].clone();
 
-        // イントネーション編集済みの場合は直接合成して再生する（通常キャッシュは使わない）
+        // イントネーション編集済みの場合はキャッシュを確認し、あれば即再生、なければ合成してキャッシュに保存する
         if let Some(data) = self.line_intonations.get(index).and_then(|d| d.as_ref()).cloned() {
-            self.spawn_intonation_play(data.query, data.speaker_id);
-            self.status_msg = format!("[♬ intonation] line {}", index + 1);
+            let cache_key = format!("intonation:{}:{}", data.speaker_id, serde_json::to_string(&data.query).unwrap_or_default());
+            let cached = { self.cache.lock().unwrap().get(&cache_key).cloned() };
+            if let Some(wav) = cached {
+                let _ = self.play_tx.send(wav).await;
+                self.status_msg = format!("[♬ cached] line {}", index + 1);
+            } else {
+                self.spawn_intonation_play(data.query, data.speaker_id);
+                self.status_msg = format!("[♬ intonation] line {}", index + 1);
+            }
             return;
         }
 
@@ -264,13 +271,17 @@ impl App {
 
     /// イントネーションqueryを使って合成・再生するタスクを起動する。
     /// 前回のタスクがあればabortしてから新しいタスクを起動する（並列実行を防ぐ）。
+    /// 合成結果はWavCacheに保存し、次回以降の再生でキャッシュから即時再生できるようにする。
     pub(super) fn spawn_intonation_play(&mut self, query: serde_json::Value, speaker_id: u32) {
         if let Some(h) = self.intonation_play_handle.take() {
             h.abort();
         }
         let play_tx = self.play_tx.clone();
+        let cache = Arc::clone(&self.cache);
+        let cache_key = format!("intonation:{}:{}", speaker_id, serde_json::to_string(&query).unwrap_or_default());
         self.intonation_play_handle = Some(tokio::spawn(async move {
             if let Ok(wav) = crate::voicevox::synthesize_with_query(&query, speaker_id).await {
+                { cache.lock().unwrap().insert(cache_key, wav.clone()); }
                 let _ = play_tx.send(wav).await;
             }
         }));
