@@ -53,6 +53,7 @@ pub async fn load(base_urls: &[&str]) -> Result<()> {
     let mut speaker_base_url = HashMap::new();
     let mut fallback_speakers: Vec<Speaker> = Vec::new();
     let mut loaded_any       = false;
+    let mut load_errors: Vec<String> = Vec::new();
 
     for &base_url in base_urls {
         let url = format!("{base_url}/speakers");
@@ -60,11 +61,20 @@ pub async fn load(base_urls: &[&str]) -> Result<()> {
             Ok(resp) => match resp.error_for_status() {
                 Ok(resp) => match resp.json().await {
                     Ok(s) => s,
-                    Err(_) => continue,
+                    Err(e) => {
+                        load_errors.push(format!("{base_url}: JSONデコード失敗 ({e})"));
+                        continue;
+                    }
                 },
-                Err(_) => continue,
+                Err(e) => {
+                    load_errors.push(format!("{base_url}: HTTPエラー ({e})"));
+                    continue;
+                }
             },
-            Err(_) => continue,
+            Err(e) => {
+                load_errors.push(format!("{base_url}: 接続失敗 ({e})"));
+                continue;
+            }
         };
 
         if !loaded_any {
@@ -77,20 +87,70 @@ pub async fn load(base_urls: &[&str]) -> Result<()> {
                 char_names.push(speaker.name.clone());
             }
             for style in &speaker.styles {
-                by_name.insert((speaker.name.clone(), style.name.clone()), style.id);
-                by_style_id.insert(style.id, (speaker.name.clone(), style.name.clone()));
+                // (キャラ名, スタイル名) -> style_id の衝突検出
+                let name_key = (speaker.name.clone(), style.name.clone());
+                if let Some(&existing_id) = by_name.get(&name_key) {
+                    if existing_id != style.id {
+                        return Err(anyhow::anyhow!(
+                            "複数エンジンの /speakers で (キャラ名, スタイル名) が衝突しました: {:?} に対して style_id {} と {} が競合しています",
+                            name_key, existing_id, style.id,
+                        ));
+                    }
+                } else {
+                    by_name.insert(name_key, style.id);
+                }
+
+                // style_id -> (キャラ名, スタイル名) の衝突検出
+                if let Some((existing_char, existing_style)) = by_style_id.get(&style.id) {
+                    if *existing_char != speaker.name || *existing_style != style.name {
+                        return Err(anyhow::anyhow!(
+                            "複数エンジンの /speakers で style_id が衝突しました: id={} が ({:?}, {:?}) と ({:?}, {:?}) で競合しています",
+                            style.id, existing_char, existing_style, speaker.name, style.name,
+                        ));
+                    }
+                } else {
+                    by_style_id.insert(style.id, (speaker.name.clone(), style.name.clone()));
+                }
+
                 style_name_set.insert(style.name.clone());
-                char_styles.entry(speaker.name.clone())
-                    .or_default()
-                    .push((style.name.clone(), style.id));
-                speaker_base_url.insert(style.id, base_url.to_string());
+
+                // char_styles の重複/矛盾検出
+                let entry = char_styles.entry(speaker.name.clone()).or_default();
+                if let Some((existing_style_name, _)) = entry.iter().find(|(_, id)| *id == style.id) {
+                    if *existing_style_name != style.name {
+                        return Err(anyhow::anyhow!(
+                            "複数エンジンの /speakers で char_styles が矛盾しています: キャラ {:?} の style_id {} が {:?} と {:?} で競合しています",
+                            speaker.name, style.id, existing_style_name, style.name,
+                        ));
+                    }
+                } else {
+                    entry.push((style.name.clone(), style.id));
+                }
+
+                // style_id -> base_url の衝突検出
+                if let Some(existing_url) = speaker_base_url.get(&style.id) {
+                    if existing_url != base_url {
+                        return Err(anyhow::anyhow!(
+                            "複数エンジンの /speakers で style_id と base_url の対応が衝突しました: id={} が {} と {} に紐づいています",
+                            style.id, existing_url, base_url,
+                        ));
+                    }
+                } else {
+                    speaker_base_url.insert(style.id, base_url.to_string());
+                }
             }
         }
     }
 
     if !loaded_any {
+        let detail = if load_errors.is_empty() {
+            String::new()
+        } else {
+            format!("\n{}", load_errors.join("\n"))
+        };
         return Err(anyhow::anyhow!(
-            "GET /speakers に接続できなかった。VOICEVOXが起動しているか確認してくれ"
+            "GET /speakers に接続できなかった。VOICEVOXが起動しているか確認してくれ{}",
+            detail
         ));
     }
 
