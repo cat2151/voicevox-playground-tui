@@ -42,60 +42,6 @@ async fn fetch_remote_hash() -> Result<String> {
         .ok_or_else(|| anyhow::anyhow!("SHA field not found in GitHub API response"))
 }
 
-/// ユニークなファイル名を生成するためのタイムスタンプ（ナノ秒）を返す
-fn unique_suffix() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0)
-}
-
-/// アップデータースクリプトを一時ディレクトリに書き込みspawnする。
-/// スクリプトは: メインプロセス終了を待つ → cargo install → vpt を起動。
-/// ユニークなファイル名を使い、実行後に自身を削除する。
-fn spawn_updater_process() -> Result<()> {
-    let suffix = unique_suffix();
-
-    #[cfg(target_os = "windows")]
-    {
-        let script_path = std::env::temp_dir().join(format!("vpt_updater_{}.bat", suffix));
-        let script = format!(
-            "@echo off\r\ntimeout /t 3 /nobreak >nul\r\ncargo install --force --git https://github.com/{}/{}\r\nvpt\r\n(goto) 2>nul & del \"%~f0\"\r\n",
-            REPO_OWNER, REPO_NAME
-        );
-        std::fs::write(&script_path, &script)?;
-        let script_str = script_path
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Updater script path contains invalid UTF-8"))?;
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "vpt updater", script_str])
-            .spawn()?;
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        let script_path = std::env::temp_dir().join(format!("vpt_updater_{}.sh", suffix));
-        let script = format!(
-            "#!/bin/sh\nsleep 3\ncargo install --force --git https://github.com/{}/{}\nrm -- \"$0\"\nvpt\n",
-            REPO_OWNER, REPO_NAME
-        );
-        std::fs::write(&script_path, &script)?;
-        // 実行権限を付与
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(
-                &script_path,
-                std::fs::Permissions::from_mode(0o755),
-            )?;
-        }
-        std::process::Command::new("sh")
-            .arg(&script_path)
-            .spawn()?;
-    }
-
-    Ok(())
-}
-
 /// バックグラウンドでアップデートチェックを実行する。
 /// 更新が必要な場合は `update_available` を true にセットし、ユーザーの選択を待つ。
 pub fn spawn_update_check(update_available: Arc<AtomicBool>) {
@@ -132,55 +78,34 @@ async fn check_for_update(update_available: Arc<AtomicBool>) -> Result<()> {
     Ok(())
 }
 
-/// 裏でアップデートする（バックグラウンドプロセスを起動してメインアプリを終了）。
-/// TUIを終了してから呼び出すこと。
-pub fn run_background_update() -> Result<()> {
-    spawn_updater_process()
-}
-
 /// 表でアップデートする（端末にビルドログを表示しながら cargo install を実行）。
 /// TUIを終了してから呼び出すこと。
-/// Windowsではexeファイルのロックにより直接インストールできないため、バッチファイルを使用する。
 pub async fn run_foreground_update() -> Result<()> {
-    #[cfg(target_os = "windows")]
-    {
-        println!("アップデートをバッチファイルで開始します...");
-        spawn_updater_process()
-            .map_err(|e| anyhow::anyhow!("バッチファイルアップデーターの起動に失敗しました: {}", e))?;
-        return Ok(());
-    }
+    println!("アップデートを開始します...");
+    println!("cargo install --force --git https://github.com/{}/{}", REPO_OWNER, REPO_NAME);
 
-    #[cfg(not(target_os = "windows"))]
-    {
-        println!("アップデートを開始します...");
-        println!("cargo install --force --git https://github.com/{}/{}", REPO_OWNER, REPO_NAME);
+    let status = tokio::task::spawn_blocking(|| {
+        std::process::Command::new("cargo")
+            .args([
+                "install",
+                "--force",
+                "--git",
+                &format!("https://github.com/{}/{}", REPO_OWNER, REPO_NAME),
+            ])
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .status()
+    })
+    .await??;
 
-        let status = tokio::task::spawn_blocking(|| {
-            std::process::Command::new("cargo")
-                .args([
-                    "install",
-                    "--force",
-                    "--git",
-                    &format!("https://github.com/{}/{}", REPO_OWNER, REPO_NAME),
-                ])
-                .stdout(std::process::Stdio::inherit())
-                .stderr(std::process::Stdio::inherit())
-                .status()
-        })
-        .await??;
-
-        if status.success() {
-            println!("アップデート成功！再起動します...");
-            if let Err(e) = std::process::Command::new("vpt").spawn() {
-                eprintln!("vptの再起動に失敗しました: {}", e);
-            }
-        } else {
-            eprintln!("アップデートに失敗しました。バックグラウンドアップデーターで再試行します...");
-            if let Err(e) = spawn_updater_process() {
-                eprintln!("バックグラウンドアップデーターの起動に失敗しました: {}", e);
-            }
+    if status.success() {
+        println!("アップデート成功！再起動します...");
+        if let Err(e) = std::process::Command::new("vpt").spawn() {
+            eprintln!("vptの再起動に失敗しました: {}", e);
         }
-
-        Ok(())
+    } else {
+        eprintln!("アップデートに失敗しました。");
     }
+
+    Ok(())
 }
