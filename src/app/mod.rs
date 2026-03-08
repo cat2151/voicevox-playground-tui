@@ -134,6 +134,29 @@ pub struct App {
 }
 
 impl App {
+    /// 複数タブの初期内容を指定してアプリを生成する。
+    /// `all_lines[0]` がタブ1（history.txt）、`all_lines[1]` がタブ2（history2.txt）… に対応する。
+    pub fn new_with_tabs(all_lines: Vec<Vec<String>>) -> Self {
+        let mut all_lines = all_lines;
+        if all_lines.is_empty() {
+            all_lines.push(vec![String::new()]);
+        }
+
+        // 最初のタブの内容でアプリを初期化する
+        let first_lines = utils::compress_trailing_empty(all_lines.remove(0));
+        let mut app = Self::new(first_lines);
+
+        // 残りのタブをtabsに追加する（タブ0のスロットは既に確保済み）
+        for extra_lines in all_lines {
+            let extra_lines = utils::compress_trailing_empty(extra_lines);
+            let extra_cursor = if extra_lines.is_empty() { 0 } else { extra_lines.len() - 1 };
+            let extra_intonations = vec![None; extra_lines.len()];
+            app.tabs.push((extra_lines, extra_intonations, extra_cursor, false));
+        }
+
+        app
+    }
+
     pub fn new(lines: Vec<String>) -> Self {
         let lines = utils::compress_trailing_empty(lines);
         let line_intonations = vec![None; lines.len()];
