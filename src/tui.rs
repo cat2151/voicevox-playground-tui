@@ -181,9 +181,11 @@ pub async fn run(app: &mut App) -> Result<()> {
                         KeyCode::Char(c) if c.is_ascii_digit() => {
                             app.intonation_num_buf.push(c);
                         }
-                        // '.': 小数点（数値入力中のみ、重複不可）
-                        KeyCode::Char('.') if num_active => {
-                            if !app.intonation_num_buf.contains('.') {
+                        // '.': 小数点（重複不可。バッファ空の場合は "0." として開始）
+                        KeyCode::Char('.') if !app.intonation_num_buf.contains('.') => {
+                            if app.intonation_num_buf.is_empty() {
+                                app.intonation_num_buf.push_str("0.");
+                            } else {
                                 app.intonation_num_buf.push('.');
                             }
                         }

@@ -19,3 +19,5 @@ dirs        = "5"
 anyhow      = "1"
 tui-textarea = "0.7"
 arboard      = { version = "3.6.1", default-features = false }
+lru          = "0.12"
+unicode-width = "0.2"

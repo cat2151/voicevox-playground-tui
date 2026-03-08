@@ -7,7 +7,7 @@
 //! - a-z : mora[0]-[25] の pitch を +0.1（1秒デバウンスで再生）
 //! - A-Z : mora[0]-[25] の pitch を -0.1（1秒デバウンスで再生）
 //! - 0-9 : 数値直接入力サブモードへ（バッファに追記）
-//! - .   : 小数点（数値入力中のみ）
+//! - .   : 小数点（バッファ空なら"0."として開始、重複不可）
 //! - BS  : 数値バッファを1文字削除
 //! - Enter : 数値入力中なら確定→再生、そうでなければイントネーション確定してNormalへ
 //! - Esc   : 数値入力中ならキャンセル、そうでなければイントネーション確定してNormalへ
@@ -28,12 +28,20 @@ impl App {
         let line = self.lines[idx].clone();
         if line.trim().is_empty() { return; }
 
-        // タグ解析して先頭セグメントのテキストとspeaker_idを取得する
-        let segments = tag::parse_line(&line);
-        let (text, ctx) = match segments.into_iter().next() {
-            Some(s) => s,
-            None => return,
-        };
+        // タグ解析してセグメント情報を取得する
+        let mut segments = tag::parse_line(&line);
+        // セグメントが存在しない場合は何もしない
+        if segments.is_empty() {
+            return;
+        }
+        // 複数セグメント（行中で話者/スタイルが切り替わる行）は現在の実装では扱えないためエラーにする
+        if segments.len() != 1 {
+            self.status_msg = String::from(
+                "[intonation] 複数の話者/スタイルが含まれる行はイントネーション編集できません",
+            );
+            return;
+        }
+        let (text, ctx) = segments.swap_remove(0);
         let speaker_id = ctx.speaker_id;
 
         // イントネーションキャッシュに既存データがあればそれを使う（前回編集を引き継ぐ）
@@ -108,7 +116,7 @@ impl App {
     pub async fn intonation_confirm(&mut self) {
         let line = self.lines.get(self.cursor).cloned().unwrap_or_default();
         // イントネーションキャッシュに保存（行テキストをキーとする）
-        self.intonation_cache.insert(line, IntonationLineData {
+        self.intonation_cache.put(line, IntonationLineData {
             query:      self.intonation_query.clone(),
             mora_texts: self.intonation_mora_texts.clone(),
             pitches:    self.intonation_pitches.clone(),
@@ -135,11 +143,6 @@ impl App {
     pub(super) async fn play_with_intonation_query(&mut self) {
         let query      = self.intonation_query.clone();
         let speaker_id = self.intonation_speaker_id;
-        let play_tx    = self.play_tx.clone();
-        tokio::spawn(async move {
-            if let Ok(wav) = voicevox::synthesize_with_query(&query, speaker_id).await {
-                let _ = play_tx.send(wav).await;
-            }
-        });
+        self.spawn_intonation_play(query, speaker_id);
     }
 }

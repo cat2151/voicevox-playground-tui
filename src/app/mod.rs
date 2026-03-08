@@ -7,10 +7,12 @@ mod tab_ops;
 mod utils;
 
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use lru::LruCache;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tui_textarea::TextArea;
@@ -95,8 +97,8 @@ pub struct App {
     /// コマンドモード（":tabnew" など）の入力バッファ
     pub command_buf:    String,
     // ── イントネーション編集 ──────────────────────────────────────────────────────
-    /// 行テキスト → イントネーション編集データ（イントネーション確定済み行を保持）
-    pub intonation_cache:      HashMap<String, IntonationLineData>,
+    /// 行テキスト → イントネーション編集データ（LRUキャッシュ、最大50件）
+    pub intonation_cache:      LruCache<String, IntonationLineData>,
     /// イントネーション編集セッション中のspeaker_id
     pub intonation_speaker_id: u32,
     /// イントネーション編集セッション中のモーラ表示テキスト一覧
@@ -111,6 +113,8 @@ pub struct App {
     pub intonation_num_buf:    String,
     /// a-zA-Zキーによる再生デバウンス期限（1秒）
     pub intonation_debounce:   Option<Instant>,
+    /// イントネーション合成再生タスクのハンドル（新規再生時にabortして上書き）
+    pub intonation_play_handle: Option<JoinHandle<()>>,
 }
 
 impl App {
@@ -153,7 +157,7 @@ impl App {
             tabs,
             active_tab:    0,
             command_buf:   String::new(),
-            intonation_cache:      HashMap::new(),
+            intonation_cache:      LruCache::new(NonZeroUsize::new(50).unwrap()),
             intonation_speaker_id: 0,
             intonation_mora_texts: Vec::new(),
             intonation_pitches:    Vec::new(),
@@ -161,6 +165,7 @@ impl App {
             intonation_cursor:     0,
             intonation_num_buf:    String::new(),
             intonation_debounce:   None,
+            intonation_play_handle: None,
         }
     }
 
@@ -216,12 +221,7 @@ impl App {
 
         // イントネーション編集済みの場合は直接合成して再生する（通常キャッシュは使わない）
         if let Some(data) = self.intonation_cache.get(&text).cloned() {
-            let play_tx = self.play_tx.clone();
-            tokio::spawn(async move {
-                if let Ok(wav) = crate::voicevox::synthesize_with_query(&data.query, data.speaker_id).await {
-                    let _ = play_tx.send(wav).await;
-                }
-            });
+            self.spawn_intonation_play(data.query, data.speaker_id);
             self.status_msg = format!("[♬ intonation] line {}", index + 1);
             return;
         }
@@ -234,6 +234,20 @@ impl App {
             let _ = self.fetch_tx.send(FetchRequest { text, play_after: true }).await;
             self.status_msg = format!("[fetching...] line {}", index + 1);
         }
+    }
+
+    /// イントネーションqueryを使って合成・再生するタスクを起動する。
+    /// 前回のタスクがあればabortしてから新しいタスクを起動する（並列実行を防ぐ）。
+    pub(super) fn spawn_intonation_play(&mut self, query: serde_json::Value, speaker_id: u32) {
+        if let Some(h) = self.intonation_play_handle.take() {
+            h.abort();
+        }
+        let play_tx = self.play_tx.clone();
+        self.intonation_play_handle = Some(tokio::spawn(async move {
+            if let Ok(wav) = crate::voicevox::synthesize_with_query(&query, speaker_id).await {
+                let _ = play_tx.send(wav).await;
+            }
+        }));
     }
 
     /// 現在行のfetch完了後、表示範囲内のcacheのない行を裏で1行ずつfetchする。

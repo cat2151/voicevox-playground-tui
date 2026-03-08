@@ -5,6 +5,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
     Frame,
 };
+use unicode_width::UnicodeWidthStr;
 
 use crate::app::{App, Mode};
 
@@ -114,7 +115,7 @@ fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
     let items: Vec<ListItem> = visible_indices.iter().map(|&i| {
         let line = &app.lines[i];
         let cached_mark = if app.cache.lock().unwrap().contains_key(line.as_str()) { "♪ " } else { "  " };
-        let intonation_mark = if app.intonation_cache.contains_key(line.as_str()) { "♬ " } else { "  " };
+        let intonation_mark = if app.intonation_cache.contains(line.as_str()) { "♬ " } else { "  " };
 
         // 折りたたみ時：次の行が行頭spaceなら"+"インジケータを表示する
         let fold_mark = if app.folded && app.lines.get(i + 1).map(|l| l.starts_with(' ')).unwrap_or(false) {
@@ -401,7 +402,7 @@ fn render_intonation_editor(f: &mut Frame, app: &App, area: Rect) {
 /// イントネーション編集モードのステータスバーを描画する。
 fn render_intonation_status(f: &mut Frame, app: &App, area: Rect) {
     let hint = "a-z:mora pitch+0.1  A-Z:pitch-0.1  0-9:直接入力  Esc/Enter:確定してNormalへ";
-    let hint_width = hint.len() as u16 + 1;
+    let hint_width = UnicodeWidthStr::width(hint) as u16 + 1;
     let cols = Layout::horizontal([
         Constraint::Min(0),
         Constraint::Length(hint_width),
