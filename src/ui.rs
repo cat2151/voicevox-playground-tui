@@ -586,16 +586,29 @@ fn render_help_overlay(f: &mut Frame, app: &App) {
     // エントリを2列で並べる
     let n = HELP_ENTRIES.len();
 
-    // 左列・右列それぞれの最大desc表示幅を計算（ターミナル幅に依存しない固定幅）
-    let max_left_desc_w = (0..n).step_by(2)
+    // キー列の表示幅（固定）
+    let key_w = 13usize;
+
+    // 利用可能なコンテンツ幅に基づいて、desc列の最大表示幅を計算する
+    // 1 行あたりの構成:
+    //   key_w + 1(スペース) + left_desc + 3(セパレータ) + key_w + 1(スペース) + right_desc
+    let total_fixed: u16 = (key_w + 1 + 3 + key_w + 1) as u16;
+    let avail_desc_total: u16 = content_area.width.saturating_sub(total_fixed);
+    // 左右それぞれに割り当てる desc の最大幅（端数は切り捨て）
+    let per_col_desc_max: usize = (avail_desc_total as usize) / 2;
+
+    // 左列・右列それぞれの自然な最大desc表示幅を計算し、ターミナル幅に合わせて上限をかける
+    let natural_left_desc_w = (0..n).step_by(2)
         .map(|i| UnicodeWidthStr::width(HELP_ENTRIES[i].desc))
         .max()
         .unwrap_or(0);
-    let max_right_desc_w = (1..n).step_by(2)
+    let natural_right_desc_w = (1..n).step_by(2)
         .map(|i| UnicodeWidthStr::width(HELP_ENTRIES[i].desc))
         .max()
         .unwrap_or(0);
-    let key_w = 13usize; // キー列の表示幅（固定）
+
+    let max_left_desc_w = natural_left_desc_w.min(per_col_desc_max);
+    let max_right_desc_w = natural_right_desc_w.min(per_col_desc_max);
 
     let items: Vec<ListItem> = (0..n).step_by(2).flat_map(|row_start| {
         let left_idx  = row_start;
