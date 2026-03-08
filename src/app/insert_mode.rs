@@ -36,6 +36,7 @@ impl App {
             .map(|l| tag::ctx_to_prefix(&tag::tail_ctx(l)))
             .unwrap_or_default();
         self.lines.insert(self.cursor + 1, prefix.clone());
+        self.line_intonations.insert(self.cursor + 1, None);
         self.cursor    += 1;
         self.textarea   = super::utils::make_textarea(prefix);
         self.mode       = Mode::Insert;
@@ -53,6 +54,7 @@ impl App {
             String::new()
         };
         self.lines.insert(self.cursor, prefix.clone());
+        self.line_intonations.insert(self.cursor, None);
         self.textarea   = super::utils::make_textarea(prefix);
         self.mode       = Mode::Insert;
         self.status_msg = String::from("-- INSERT --");
@@ -79,12 +81,21 @@ impl App {
         let split_lines = tag::split_by_ctx_change(&text);
         if self.cursor < self.lines.len() {
             // split_by_ctx_change は常に1要素以上を返す
-            self.lines[self.cursor] = split_lines.first().cloned().unwrap_or_default();
+            // テキストが変わった場合のみ現在行のイントネーションをクリアする
+            if let Some(first_line) = split_lines.first() {
+                if &self.lines[self.cursor] != first_line {
+                    self.line_intonations[self.cursor] = None;
+                }
+                self.lines[self.cursor] = first_line.clone();
+            }
             for (i, extra_line) in split_lines[1..].iter().enumerate() {
                 self.lines.insert(self.cursor + 1 + i, extra_line.clone());
+                self.line_intonations.insert(self.cursor + 1 + i, None);
             }
         }
         self.lines = super::utils::compress_trailing_empty(std::mem::take(&mut self.lines));
+        // line_intonations の長さを lines に合わせる（末尾の空行は常にイントネーションなし）
+        self.line_intonations.resize(self.lines.len(), None);
         if self.cursor >= self.lines.len() {
             self.cursor = self.lines.len().saturating_sub(1);
         }

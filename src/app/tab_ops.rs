@@ -4,11 +4,12 @@ use super::App;
 
 impl App {
     /// アクティブタブの現在状態をtabsスロットにswapで書き込む内部ヘルパー。
-    /// クローンを避けるため、self.linesとtabs[active_tab].0を入れ替える。
-    /// 呼び出し後、tabs[active_tab].0には正しいlinesが、self.linesには古いスロット値が入る。
+    /// クローンを避けるため、self.linesとtabs[active_tab].0、self.line_intonationsとtabs[active_tab].1を入れ替える。
+    /// 呼び出し後、tabs[active_tab].0/1には正しいlines/line_intonationsが、self.lines/self.line_intonationsには古いスロット値が入る。
     fn save_current_tab(&mut self) {
-        if let Some((tab_lines, tab_cursor, tab_folded)) = self.tabs.get_mut(self.active_tab) {
+        if let Some((tab_lines, tab_intonations, tab_cursor, tab_folded)) = self.tabs.get_mut(self.active_tab) {
             std::mem::swap(&mut self.lines, tab_lines);
+            std::mem::swap(&mut self.line_intonations, tab_intonations);
             *tab_cursor  = self.cursor;
             *tab_folded  = self.folded;
         }
@@ -19,9 +20,10 @@ impl App {
         self.reset_pending_prefixes();
         self.save_current_tab();
         // 新タブ用の空エントリを追加し、アクティブにする
-        self.tabs.push((vec![], 0, false));
+        self.tabs.push((vec![], vec![], 0, false));
         self.active_tab = self.tabs.len() - 1;
         self.lines  = vec![String::new()];
+        self.line_intonations = vec![None];
         self.cursor = 0;
         self.folded = false;
         self.restart_background_prefetch();
@@ -36,8 +38,9 @@ impl App {
         // 次タブのlinesをmem::takeで取り出してself.linesに設定
         self.active_tab = (self.active_tab + 1) % self.tabs.len();
         self.lines  = std::mem::take(&mut self.tabs[self.active_tab].0);
-        self.cursor = self.tabs[self.active_tab].1;
-        self.folded = self.tabs[self.active_tab].2;
+        self.line_intonations = std::mem::take(&mut self.tabs[self.active_tab].1);
+        self.cursor = self.tabs[self.active_tab].2;
+        self.folded = self.tabs[self.active_tab].3;
         // 折りたたみ状態を復元した場合、カーソルが非表示行にある可能性を修正
         self.normalize_cursor_for_fold();
         self.restart_background_prefetch();
@@ -52,8 +55,9 @@ impl App {
         // 前タブのlinesをmem::takeで取り出してself.linesに設定
         self.active_tab = if self.active_tab == 0 { self.tabs.len() - 1 } else { self.active_tab - 1 };
         self.lines  = std::mem::take(&mut self.tabs[self.active_tab].0);
-        self.cursor = self.tabs[self.active_tab].1;
-        self.folded = self.tabs[self.active_tab].2;
+        self.line_intonations = std::mem::take(&mut self.tabs[self.active_tab].1);
+        self.cursor = self.tabs[self.active_tab].2;
+        self.folded = self.tabs[self.active_tab].3;
         // 折りたたみ状態を復元した場合、カーソルが非表示行にある可能性を修正
         self.normalize_cursor_for_fold();
         self.restart_background_prefetch();

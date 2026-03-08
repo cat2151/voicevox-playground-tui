@@ -57,10 +57,12 @@ impl App {
         self.yank_buf = Some(self.lines.get(self.cursor).cloned().unwrap_or_default());
         if self.lines.len() <= 1 {
             self.lines  = vec![String::new()];
+            self.line_intonations = vec![None];
             self.cursor = 0;
             return;
         }
         self.lines.remove(self.cursor);
+        self.line_intonations.remove(self.cursor);
         if self.cursor >= self.lines.len() { self.cursor = self.lines.len() - 1; }
         self.fetch_and_play(self.cursor).await;
         self.restart_background_prefetch();
@@ -70,6 +72,7 @@ impl App {
         self.reset_pending_prefixes();
         let text = match &self.yank_buf { Some(t) => t.clone(), None => return };
         self.lines.insert(self.cursor + 1, text);
+        self.line_intonations.insert(self.cursor + 1, None);
         self.cursor += 1;
         // 折りたたみ時、カーソルが非表示行（行頭space）になる場合は最も近い表示行へ移動する
         self.normalize_cursor_for_fold();
@@ -81,6 +84,7 @@ impl App {
         self.reset_pending_prefixes();
         let text = match &self.yank_buf { Some(t) => t.clone(), None => return };
         self.lines.insert(self.cursor, text);
+        self.line_intonations.insert(self.cursor, None);
         // 折りたたみ時、カーソルが非表示行（行頭space）になる場合は最も近い表示行へ移動する
         self.normalize_cursor_for_fold();
         self.fetch_and_play(self.cursor).await;
@@ -93,9 +97,13 @@ impl App {
         let clip_lines = match self.read_clipboard_lines() { Ok(l) => l, Err(()) => return };
         if clip_lines.is_empty() { return; }
         let insert_pos = self.cursor + 1;
+        let clip_count = clip_lines.len();
         let tail = self.lines.split_off(insert_pos);
+        let tail_intonations = self.line_intonations.split_off(insert_pos);
         self.lines.extend(clip_lines);
+        self.line_intonations.extend(vec![None; clip_count]);
         self.lines.extend(tail);
+        self.line_intonations.extend(tail_intonations);
         self.cursor = insert_pos;
         self.normalize_cursor_for_fold();
         self.fetch_and_play(self.cursor).await;
@@ -107,9 +115,13 @@ impl App {
         self.reset_pending_prefixes();
         let clip_lines = match self.read_clipboard_lines() { Ok(l) => l, Err(()) => return };
         if clip_lines.is_empty() { return; }
+        let clip_count = clip_lines.len();
         let tail = self.lines.split_off(self.cursor);
+        let tail_intonations = self.line_intonations.split_off(self.cursor);
         self.lines.extend(clip_lines);
+        self.line_intonations.extend(vec![None; clip_count]);
         self.lines.extend(tail);
+        self.line_intonations.extend(tail_intonations);
         self.normalize_cursor_for_fold();
         self.fetch_and_play(self.cursor).await;
         self.restart_background_prefetch();
