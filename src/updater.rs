@@ -60,7 +60,7 @@ fn spawn_updater_process() -> Result<()> {
     {
         let script_path = std::env::temp_dir().join(format!("vpt_updater_{}.bat", suffix));
         let script = format!(
-            "@echo off\r\ntimeout /t 3 /nobreak >nul\r\ncargo install --force --git https://github.com/{}/{}\r\nvpt\r\ndel \"%~f0\"\r\n",
+            "@echo off\r\ntimeout /t 3 /nobreak >nul\r\ncargo install --force --git https://github.com/{}/{}\r\nvpt\r\n(goto) 2>nul & del \"%~f0\"\r\n",
             REPO_OWNER, REPO_NAME
         );
         std::fs::write(&script_path, &script)?;
