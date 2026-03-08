@@ -283,7 +283,7 @@ fn centered_dialog(width: u16, height: u16, area: Rect) -> Rect {
 
 /// アップデート利用可能ダイアログ（自動検出時）
 fn render_update_available_dialog(f: &mut Frame, area: Rect) {
-    let dialog_area = centered_dialog(44, 9, area);
+    let dialog_area = centered_dialog(44, 8, area);
     f.render_widget(Clear, dialog_area);
 
     let text = vec![
@@ -293,7 +293,6 @@ fn render_update_available_dialog(f: &mut Frame, area: Rect) {
             Style::default().fg(ORANGE).bold(),
         )),
         Line::from(""),
-        Line::from(Span::styled("  b : 裏でアップデート（バックグラウンド）", Style::default().fg(FG))),
         Line::from(Span::styled("  f : 表でアップデート（ビルドログを表示）", Style::default().fg(FG))),
         Line::from(Span::styled("  Esc : 今はアップデートしない", Style::default().fg(DIM))),
         Line::from(""),

@@ -33,8 +33,6 @@ pub enum Mode {
 /// アップデート実行方法の選択結果
 #[derive(Debug, Clone, PartialEq)]
 pub enum UpdateAction {
-    /// 裏でアップデート（バックグラウンドプロセスで実行）
-    Background,
     /// 表でアップデート（端末にビルドログを表示）
     Foreground,
 }

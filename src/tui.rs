@@ -173,10 +173,6 @@ pub async fn run(app: &mut App) -> Result<()> {
             Mode::UpdateAvailableDialog => {
                 if let Event::Key(key) = ev {
                     match key.code {
-                        KeyCode::Char('b') => {
-                            app.update_action = Some(UpdateAction::Background);
-                            break;
-                        }
                         KeyCode::Char('f') => {
                             app.update_action = Some(UpdateAction::Foreground);
                             break;

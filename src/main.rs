@@ -37,11 +37,6 @@ async fn main() -> Result<()> {
 
     // ユーザーが選択したアップデート実行方法に応じて処理する
     match app.update_action {
-        Some(UpdateAction::Background) => {
-            if let Err(e) = updater::run_background_update() {
-                eprintln!("バックグラウンドアップデートの起動に失敗しました: {}", e);
-            }
-        }
         Some(UpdateAction::Foreground) => {
             if let Err(e) = updater::run_foreground_update().await {
                 eprintln!("フォアグラウンドアップデートに失敗しました: {}", e);
