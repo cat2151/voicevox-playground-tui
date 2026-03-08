@@ -2314,7 +2314,6 @@ dependencies = [
  "arboard",
  "crossterm",
  "dirs",
- "lru",
  "ratatui",
  "reqwest",
  "rodio",

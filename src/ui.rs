@@ -109,7 +109,7 @@ fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
     let items: Vec<ListItem> = visible_indices.iter().map(|&i| {
         let line = &app.lines[i];
         let cached_mark = if app.cache.lock().unwrap().contains_key(line.as_str()) { "♪ " } else { "  " };
-        let intonation_mark = if app.intonation_cache.contains(line.as_str()) { "♬ " } else { "  " };
+        let intonation_mark = if app.line_intonations.get(i).and_then(|d| d.as_ref()).is_some() { "♬ " } else { "  " };
 
         // 折りたたみ時：次の行が行頭spaceなら"+"インジケータを表示する
         let fold_mark = if app.folded && app.lines.get(i + 1).map(|l| l.starts_with(' ')).unwrap_or(false) {

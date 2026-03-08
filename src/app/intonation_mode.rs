@@ -44,12 +44,13 @@ impl App {
         let (text, ctx) = segments.swap_remove(0);
         let speaker_id = ctx.speaker_id;
 
-        // イントネーションキャッシュに既存データがあればそれを使う（前回編集を引き継ぐ）
-        if let Some(data) = self.intonation_cache.get(&line) {
+        // 行ごとのイントネーションデータがあればそれを使う（前回編集を引き継ぐ）
+        if let Some(Some(data)) = self.line_intonations.get(idx) {
+            let data = data.clone();
             self.intonation_speaker_id = data.speaker_id;
-            self.intonation_mora_texts = data.mora_texts.clone();
-            self.intonation_pitches    = data.pitches.clone();
-            self.intonation_query      = data.query.clone();
+            self.intonation_mora_texts = data.mora_texts;
+            self.intonation_pitches    = data.pitches;
+            self.intonation_query      = data.query;
         } else {
             // APIからaudio_queryを取得する
             self.status_msg = String::from("[audio_query 取得中...]");
@@ -114,14 +115,15 @@ impl App {
 
     /// ESC/Enter（数値入力なし）: イントネーションを確定してNormalモードへ戻る。
     pub async fn intonation_confirm(&mut self) {
-        let line = self.lines.get(self.cursor).cloned().unwrap_or_default();
-        // イントネーションキャッシュに保存（行テキストをキーとする）
-        self.intonation_cache.put(line, IntonationLineData {
-            query:      self.intonation_query.clone(),
-            mora_texts: self.intonation_mora_texts.clone(),
-            pitches:    self.intonation_pitches.clone(),
-            speaker_id: self.intonation_speaker_id,
-        });
+        // 行インデックスごとにイントネーションデータを保存する
+        if self.cursor < self.line_intonations.len() {
+            self.line_intonations[self.cursor] = Some(IntonationLineData {
+                query:      self.intonation_query.clone(),
+                mora_texts: self.intonation_mora_texts.clone(),
+                pitches:    self.intonation_pitches.clone(),
+                speaker_id: self.intonation_speaker_id,
+            });
+        }
         self.intonation_debounce = None;
         self.mode       = Mode::Normal;
         self.status_msg = format!("[♬ intonation saved] line {}", self.cursor + 1);

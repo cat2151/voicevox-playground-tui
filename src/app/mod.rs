@@ -7,12 +7,10 @@ mod tab_ops;
 mod utils;
 
 use std::collections::HashMap;
-use std::num::NonZeroUsize;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use lru::LruCache;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tui_textarea::TextArea;
@@ -31,7 +29,7 @@ pub enum Mode {
     Command,
 }
 
-/// 行ごとのイントネーション編集データ（行テキストをキーに保持する）。
+/// 行ごとのイントネーション編集データ（行インデックスに対応して保持する）。
 #[derive(Clone)]
 pub struct IntonationLineData {
     /// 合成に使うaudio_query JSON（pitch値が編集済み）
@@ -84,15 +82,15 @@ pub struct App {
     bg_prefetch_handle: Option<JoinHandle<()>>,
     /// NormalモードでESCを押した際に"q:quit"ヒントをハイライト表示する期限
     pub esc_hint_until: Option<Instant>,
-    /// タブごとの (lines, cursor, folded) を保存するリスト（アクティブタブ含む全タブ）
-    pub tabs:           Vec<(Vec<String>, usize, bool)>,
+    /// タブごとの (lines, line_intonations, cursor, folded) を保存するリスト（アクティブタブ含む全タブ）
+    pub tabs:           Vec<(Vec<String>, Vec<Option<IntonationLineData>>, usize, bool)>,
     /// 現在アクティブなタブのインデックス（0始まり）
     pub active_tab:     usize,
     /// コマンドモード（":tabnew" など）の入力バッファ
     pub command_buf:    String,
     // ── イントネーション編集 ──────────────────────────────────────────────────────
-    /// 行テキスト → イントネーション編集データ（LRUキャッシュ、最大50件）
-    pub intonation_cache:      LruCache<String, IntonationLineData>,
+    /// 行インデックスごとのイントネーション編集データ（lines と同じ長さで同期される）
+    pub line_intonations:      Vec<Option<IntonationLineData>>,
     /// イントネーション編集セッション中のspeaker_id
     pub intonation_speaker_id: u32,
     /// イントネーション編集セッション中のモーラ表示テキスト一覧
@@ -114,6 +112,7 @@ pub struct App {
 impl App {
     pub fn new(lines: Vec<String>) -> Self {
         let lines = utils::compress_trailing_empty(lines);
+        let line_intonations = vec![None; lines.len()];
         let cache: WavCache = Arc::new(Mutex::new(HashMap::new()));
 
         let (play_tx, play_rx) = mpsc::channel::<Vec<u8>>(8);
@@ -126,9 +125,10 @@ impl App {
         let cursor = if lines.is_empty() { 0 } else { lines.len() - 1 };
         // tabs[0] のlinesはプレースホルダー（実際のlinesはself.linesに保持される）。
         // タブ切り替え時にmem::swapでlinesを交換するため、初期値は空vecで良い。
-        let tabs = vec![(vec![], 0usize, false)];
+        let tabs = vec![(vec![], vec![], 0usize, false)];
         Self {
             lines, cursor,
+            line_intonations,
             textarea:      TextArea::default(),
             mode:          Mode::Normal,
             cache,
@@ -150,7 +150,6 @@ impl App {
             tabs,
             active_tab:    0,
             command_buf:   String::new(),
-            intonation_cache:      LruCache::new(NonZeroUsize::new(50).unwrap()),
             intonation_speaker_id: 0,
             intonation_mora_texts: Vec::new(),
             intonation_pitches:    Vec::new(),
@@ -213,7 +212,7 @@ impl App {
         let text = self.lines[index].clone();
 
         // イントネーション編集済みの場合は直接合成して再生する（通常キャッシュは使わない）
-        if let Some(data) = self.intonation_cache.get(&text).cloned() {
+        if let Some(data) = self.line_intonations.get(index).and_then(|d| d.as_ref()).cloned() {
             self.spawn_intonation_play(data.query, data.speaker_id);
             self.status_msg = format!("[♬ intonation] line {}", index + 1);
             return;
