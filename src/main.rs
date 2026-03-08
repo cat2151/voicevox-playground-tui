@@ -1,5 +1,6 @@
 mod app;
 mod background_prefetch;
+mod clipboard;
 mod engine_launcher;
 mod fetch;
 mod history;
@@ -21,11 +22,19 @@ const BASE_URLS: &[&str] = &[
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    let use_clipboard = args.iter().any(|arg| arg == "--clipboard");
+
     // エンジンが起動していなければ自動起動する
     engine_launcher::ensure_engine_running(BASE_URLS).await?;
 
     // 起動時に speaker テーブルをAPIから取得する（ハードコーディングなし）
     speakers::load(BASE_URLS).await?;
+
+    if use_clipboard {
+        // --clipboard: クリップボードを読み上げて終了（history.txtには追加しない）
+        return clipboard::run().await;
+    }
 
     let lines   = history::load()?;
     let mut app = App::new(lines);
