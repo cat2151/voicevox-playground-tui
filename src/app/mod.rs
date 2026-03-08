@@ -241,21 +241,28 @@ impl App {
 
     // ── 内部ヘルパー ──────────────────────────────────────────────────────────
 
+    /// イントネーションキャッシュキーを生成する。
+    /// シリアライズに失敗した場合は None を返す（キャッシュをスキップする）。
+    fn intonation_cache_key(speaker_id: u32, query: &serde_json::Value) -> Option<String> {
+        serde_json::to_string(query).ok().map(|q| format!("intonation:{}:{}", speaker_id, q))
+    }
+
     async fn fetch_and_play(&mut self, index: usize) {
         if index >= self.lines.len() || self.lines[index].trim().is_empty() { return; }
         let text = self.lines[index].clone();
 
         // イントネーション編集済みの場合はキャッシュを確認し、あれば即再生、なければ合成してキャッシュに保存する
         if let Some(data) = self.line_intonations.get(index).and_then(|d| d.as_ref()).cloned() {
-            let cache_key = format!("intonation:{}:{}", data.speaker_id, serde_json::to_string(&data.query).unwrap_or_default());
-            let cached = { self.cache.lock().unwrap().get(&cache_key).cloned() };
-            if let Some(wav) = cached {
-                let _ = self.play_tx.send(wav).await;
-                self.status_msg = format!("[♬ cached] line {}", index + 1);
-            } else {
-                self.spawn_intonation_play(data.query, data.speaker_id);
-                self.status_msg = format!("[♬ intonation] line {}", index + 1);
+            if let Some(cache_key) = Self::intonation_cache_key(data.speaker_id, &data.query) {
+                let cached = { self.cache.lock().unwrap().get(&cache_key).cloned() };
+                if let Some(wav) = cached {
+                    let _ = self.play_tx.send(wav).await;
+                    self.status_msg = format!("[♬ cached] line {}", index + 1);
+                    return;
+                }
             }
+            self.spawn_intonation_play(data.query, data.speaker_id);
+            self.status_msg = format!("[♬ intonation] line {}", index + 1);
             return;
         }
 
@@ -278,13 +285,21 @@ impl App {
         }
         let play_tx = self.play_tx.clone();
         let cache = Arc::clone(&self.cache);
-        let cache_key = format!("intonation:{}:{}", speaker_id, serde_json::to_string(&query).unwrap_or_default());
+        let cache_key = Self::intonation_cache_key(speaker_id, &query);
         self.intonation_play_handle = Some(tokio::spawn(async move {
             if let Ok(wav) = crate::voicevox::synthesize_with_query(&query, speaker_id).await {
-                { cache.lock().unwrap().insert(cache_key, wav.clone()); }
+                if let Some(key) = cache_key {
+                    cache.lock().unwrap().insert(key, wav.clone());
+                }
                 let _ = play_tx.send(wav).await;
             }
         }));
+    }
+
+    /// イントネーションキャッシュの古いエントリをすべて削除する。
+    /// イントネーション確定時に呼び出し、中間的な pitch 編集で蓄積した不要エントリを解放する。
+    pub(super) fn evict_intonation_cache(&mut self) {
+        self.cache.lock().unwrap().retain(|k, _| !k.starts_with("intonation:"));
     }
 
     /// 現在行のfetch完了後、表示範囲内のcacheのない行を裏で1行ずつfetchする。

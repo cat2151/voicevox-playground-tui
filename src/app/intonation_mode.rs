@@ -150,6 +150,8 @@ impl App {
         self.intonation_debounce = None;
         self.mode       = Mode::Normal;
         self.status_msg = format!("[♬ intonation saved] line {}", self.cursor + 1);
+        // 確定時に中間的な pitch 編集で蓄積した不要なキャッシュエントリを削除する
+        self.evict_intonation_cache();
         // 確定と同時に再生する
         self.play_with_intonation_query().await;
     }
