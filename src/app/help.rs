@@ -36,7 +36,7 @@ pub struct HelpEntry {
 /// NORMALモードのkeybind一覧（helpメニュー表示・実行用）。
 /// `action` を各エントリに直接持たせることで、並び替え・追加・削除しても
 /// 表示内容と実行アクションがズレない。
-/// 偶数インデックス＝左列（移動・可視化系）、奇数インデックス＝右列（挿入・削除系）。
+/// 偶数インデックス＝左列（ナビゲーション／再生／モード系）、奇数インデックス＝右列（編集：挿入／削除／貼り付け等）。
 pub const HELP_ENTRIES: &[HelpEntry] = &[
     HelpEntry { key: "j / ↓",      desc: "カーソル下移動",               action: HelpAction::MoveDown },
     HelpEntry { key: "i",           desc: "現在行を編集（挿入モード）",   action: HelpAction::EditCurrent },
@@ -46,7 +46,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
     HelpEntry { key: "o",           desc: "下に新行を挿入して編集",       action: HelpAction::InsertBelow },
     HelpEntry { key: "zr",          desc: "折りたたみを解除",             action: HelpAction::Unfold },
     HelpEntry { key: "dd",          desc: "現在行を削除",                 action: HelpAction::DeleteLine },
-    HelpEntry { key: "gt",          desc: "次のタブへ移動",               action: HelpAction::TabNext },
+    HelpEntry { key: "l / gt",      desc: "次のタブへ移動",               action: HelpAction::TabNext },
     HelpEntry { key: "P",           desc: "ヤンクバッファを上にペースト", action: HelpAction::PasteAbove },
     HelpEntry { key: "gT",          desc: "前のタブへ移動",               action: HelpAction::TabPrev },
     HelpEntry { key: "p",           desc: "ヤンクバッファを下にペースト", action: HelpAction::PasteBelow },
@@ -167,10 +167,9 @@ mod tests {
     }
 
     #[test]
-    fn move_row_right_col_falls_back_to_left_when_no_right() {
+    fn move_row_right_col_clamps_at_last_row() {
         // n=18(偶数)なので全行に右列エントリが存在する。
-        // よってこのフォールバックは発生しない。代わりに最終行右列から下に移動しても
-        // 最終行右列のまま（クランプ）であることを確認する。
+        // 最終行右列から下に移動しても最終行右列のまま（クランプ）であることを確認する。
         let n = HELP_ENTRIES.len(); // 18
         assert!(n % 2 == 0, "このテストはHELP_ENTRIESが偶数個のときのみ有効");
         let last_right = n - 1; // cursor=17 (右列)
@@ -205,7 +204,7 @@ mod tests {
     }
 
     #[test]
-    fn move_col_right_no_entry_when_odd_total() {
+    fn move_col_right_last_left_reaches_last_right_when_even_total() {
         // n=18(偶数)なので全行に右列エントリが存在する。
         // 最終行左列から右に移動すると右列へ移動できることを確認する。
         let n = HELP_ENTRIES.len(); // 18
@@ -214,6 +213,13 @@ mod tests {
         let last_right = n - 1; // cursor=17 (最終行右列)
         assert_eq!(move_col(last_left, 1), last_right,
             "偶数エントリ数では最終行左列から右移動で右列へ移動できること");
+    }
+
+    #[test]
+    fn help_entries_count_is_even() {
+        // 左右列が必ず対になるよう、エントリ数は偶数でなければならない
+        assert_eq!(HELP_ENTRIES.len() % 2, 0,
+            "HELP_ENTRIESは偶数個でなければならない（左右列の対称性を保つため）");
     }
 
     // ── help_select ──────────────────────────────────────────────────────────────
