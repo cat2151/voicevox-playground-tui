@@ -6,7 +6,11 @@ use serde_json::Value;
 use crate::{speakers, tag};
 
 pub async fn synthesize(text: &str, speaker_id: u32) -> Result<Vec<u8>> {
-    let base_url = &speakers::get().base_url;
+    let table    = speakers::get();
+    let base_url = table.speaker_base_url
+        .get(&speaker_id)
+        .map(|s| s.as_str())
+        .ok_or_else(|| anyhow::anyhow!("speaker_id {speaker_id} に対応するエンジンが見つからない"))?;
     let client   = reqwest::Client::new();
 
     let query: Value = client

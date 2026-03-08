@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::Deserialize;
 
 // ── APIレスポンス型 ────────────────────────────────────────────────────────────
@@ -36,40 +36,62 @@ pub struct SpeakerTable {
     pub default_id:    u32,
     pub default_char:  String,
     pub default_style: String,
-    /// VOICEVOX APIのベースURL（voicevox.rsが参照する）
-    pub base_url:    String,
+    /// style_id → VOICEVOX APIのベースURL（複数エンジン対応）
+    pub speaker_base_url: HashMap<u32, String>,
 }
 
 static TABLE: OnceLock<SpeakerTable> = OnceLock::new();
 
-/// 起動時に1回だけ呼ぶ。
-pub async fn load(base_url: &str) -> Result<()> {
-    let url = format!("{base_url}/speakers");
-    let speakers: Vec<Speaker> = reqwest::get(&url)
-        .await
-        .context("GET /speakers に接続できなかった。VOICEVOXが起動しているか確認してくれ")?
-        .error_for_status()?
-        .json()
-        .await?;
-
-    let mut by_name     = HashMap::new();
-    let mut by_style_id = HashMap::new();
-    let mut char_names  = Vec::new();
+/// 起動時に1回だけ呼ぶ。複数のエンジンURLを受け取り、応答したものをすべてマージする。
+/// 1つも応答しなかった場合はエラーを返す。
+pub async fn load(base_urls: &[&str]) -> Result<()> {
+    let mut by_name          = HashMap::new();
+    let mut by_style_id      = HashMap::new();
+    let mut char_names       = Vec::new();
     let mut char_styles: HashMap<String, Vec<(String, u32)>> = HashMap::new();
-    let mut style_name_set = std::collections::BTreeSet::new();
+    let mut style_name_set   = std::collections::BTreeSet::new();
+    let mut speaker_base_url = HashMap::new();
+    let mut fallback_speakers: Vec<Speaker> = Vec::new();
+    let mut loaded_any       = false;
 
-    for speaker in &speakers {
-        if !char_names.contains(&speaker.name) {
-            char_names.push(speaker.name.clone());
+    for &base_url in base_urls {
+        let url = format!("{base_url}/speakers");
+        let speakers: Vec<Speaker> = match reqwest::get(&url).await {
+            Ok(resp) => match resp.error_for_status() {
+                Ok(resp) => match resp.json().await {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                },
+                Err(_) => continue,
+            },
+            Err(_) => continue,
+        };
+
+        if !loaded_any {
+            fallback_speakers = speakers.clone();
+            loaded_any = true;
         }
-        for style in &speaker.styles {
-            by_name.insert((speaker.name.clone(), style.name.clone()), style.id);
-            by_style_id.insert(style.id, (speaker.name.clone(), style.name.clone()));
-            style_name_set.insert(style.name.clone());
-            char_styles.entry(speaker.name.clone())
-                .or_default()
-                .push((style.name.clone(), style.id));
+
+        for speaker in &speakers {
+            if !char_names.contains(&speaker.name) {
+                char_names.push(speaker.name.clone());
+            }
+            for style in &speaker.styles {
+                by_name.insert((speaker.name.clone(), style.name.clone()), style.id);
+                by_style_id.insert(style.id, (speaker.name.clone(), style.name.clone()));
+                style_name_set.insert(style.name.clone());
+                char_styles.entry(speaker.name.clone())
+                    .or_default()
+                    .push((style.name.clone(), style.id));
+                speaker_base_url.insert(style.id, base_url.to_string());
+            }
         }
+    }
+
+    if !loaded_any {
+        return Err(anyhow::anyhow!(
+            "GET /speakers に接続できなかった。VOICEVOXが起動しているか確認してくれ"
+        ));
     }
 
     let style_names: Vec<String> = style_name_set.into_iter().collect();
@@ -80,7 +102,7 @@ pub async fn load(base_url: &str) -> Result<()> {
         if let Some((char_name, style_name)) = by_style_id.get(&3) {
             (3u32, char_name.clone(), style_name.clone())
         } else {
-            speakers.iter()
+            fallback_speakers.iter()
                 .flat_map(|sp| sp.styles.iter().map(move |st| (st.id, sp.name.clone(), st.name.clone())))
                 .next()
                 .unwrap_or((0, String::new(), String::new()))
@@ -89,7 +111,7 @@ pub async fn load(base_url: &str) -> Result<()> {
     TABLE.set(SpeakerTable {
         by_name, by_style_id, char_styles, char_names, style_names,
         default_id, default_char, default_style,
-        base_url: base_url.to_string(),
+        speaker_base_url,
     }).ok();
     Ok(())
 }
@@ -143,6 +165,6 @@ pub(crate) fn init_test_table() {
         default_id:    3,
         default_char:  "ずんだもん".to_string(),
         default_style: "ノーマル".to_string(),
-        base_url:      String::new(),
+        speaker_base_url: HashMap::new(),
     }).ok();
 }

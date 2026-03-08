@@ -14,15 +14,18 @@ mod voicevox;
 use anyhow::Result;
 use app::{App, UpdateAction};
 
-const BASE_URL: &str = "http://localhost:50021";
+const BASE_URLS: &[&str] = &[
+    "http://localhost:50021",   // VOICEVOX
+    "http://localhost:50121",   // VOICEVOX nemo
+];
 
 #[tokio::main]
 async fn main() -> Result<()> {
     // エンジンが起動していなければ自動起動する
-    engine_launcher::ensure_engine_running(BASE_URL).await?;
+    engine_launcher::ensure_engine_running(BASE_URLS).await?;
 
     // 起動時に speaker テーブルをAPIから取得する（ハードコーディングなし）
-    speakers::load(BASE_URL).await?;
+    speakers::load(BASE_URLS).await?;
 
     let lines   = history::load()?;
     let mut app = App::new(lines);
