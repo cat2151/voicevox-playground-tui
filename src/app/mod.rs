@@ -1,10 +1,13 @@
 //! アプリケーション状態と状態遷移ロジック。
 
+mod help;
 mod insert_mode;
 mod intonation_mode;
 mod normal_mode;
 mod tab_ops;
 mod utils;
+
+pub use help::{HelpAction, HELP_ENTRIES};
 
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
@@ -27,6 +30,8 @@ pub enum Mode {
     Intonation,
     /// コロンコマンド入力モード（例: :tabnew）
     Command,
+    /// hキーで開くヘルプメニューモード
+    Help,
 }
 
 /// 行ごとのイントネーション編集データ（行インデックスに対応して保持する）。
@@ -88,6 +93,8 @@ pub struct App {
     pub active_tab:     usize,
     /// コマンドモード（":tabnew" など）の入力バッファ
     pub command_buf:    String,
+    /// ヘルプメニューの選択カーソル位置
+    pub help_cursor:    usize,
     // ── イントネーション編集 ──────────────────────────────────────────────────────
     /// 行インデックスごとのイントネーション編集データ（lines と同じ長さで同期される）
     pub line_intonations:      Vec<Option<IntonationLineData>>,
@@ -163,6 +170,7 @@ impl App {
             tabs,
             active_tab:    0,
             command_buf:   String::new(),
+            help_cursor:   0,
             intonation_speaker_id: 0,
             intonation_mora_texts: Vec::new(),
             intonation_pitches:    Vec::new(),

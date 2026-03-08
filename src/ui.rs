@@ -2,12 +2,12 @@
 
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
     Frame,
 };
 use unicode_width::UnicodeWidthStr;
 
-use crate::app::{App, Mode};
+use crate::app::{App, Mode, HELP_ENTRIES};
 
 // ── Monokai パレット ───────────────────────────────────────────────────────────
 const BG:           Color = Color::Rgb(39, 40, 34);
@@ -77,17 +77,22 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         render_status(f, app, chunks[1]);
     }
 
+    // ヘルプモードはノーマルレイアウトの上にオーバーレイ表示する
+    if app.mode == Mode::Help {
+        render_help_overlay(f, app);
+    }
+
 }
 
 fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
 
     let cursor_bg = match app.mode {
-        Mode::Normal | Mode::Command => CURSOR_NORMAL,
+        Mode::Normal | Mode::Command | Mode::Help => CURSOR_NORMAL,
         Mode::Insert => CURSOR_INSERT,
         _ => CURSOR_NORMAL
     };
     let cursor_fg = match app.mode {
-        Mode::Normal | Mode::Command => FG,
+        Mode::Normal | Mode::Command | Mode::Help => FG,
         Mode::Insert => BG,
         _ => FG
     };
@@ -140,12 +145,12 @@ fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
     }).collect();
 
     let title = match app.mode {
-        Mode::Normal | Mode::Command => Span::styled(" [NORMAL] ", Style::default().fg(GREEN).bold()),
+        Mode::Normal | Mode::Command | Mode::Help => Span::styled(" [NORMAL] ", Style::default().fg(GREEN).bold()),
         Mode::Insert => Span::styled(" [INSERT] ", Style::default().fg(CYAN).bold()),
         _ => Span::styled(" [NORMAL] ", Style::default().fg(GREEN).bold()),
     };
     let border_color = match app.mode {
-        Mode::Normal | Mode::Command => DIM,
+        Mode::Normal | Mode::Command | Mode::Help => DIM,
         Mode::Insert => CYAN,
         _ => DIM
     };
@@ -231,10 +236,11 @@ fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     let hint = match app.mode {
-        Mode::Normal => "j/k:move  i:edit  o/O:newline  dd:delete  p/P:paste  \"+p/\"+P:clip-paste  zm/zr:fold  Space/Enter:play  v:intonation  q:quit",
+        Mode::Normal => "j/k:move  i:edit  o/O:newline  dd:delete  p/P:paste  \"+p/\"+P:clip-paste  zm/zr:fold  Space/Enter:play  v:intonation  h:help  l:tab-next  q:quit",
         Mode::Insert => "^A:home  ^E:end  ^K:kill  ^W:del-word  Esc/Enter:confirm",
         Mode::Command => "",
         Mode::Intonation => "",
+        Mode::Help => "",
     };
     let hint_width = hint.len() as u16 + 1;
 
@@ -244,7 +250,7 @@ fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
     ]).split(area);
 
     let status_color = match app.mode {
-        Mode::Normal | Mode::Command => YELLOW,
+        Mode::Normal | Mode::Command | Mode::Help => YELLOW,
         Mode::Insert => CYAN,
         _ => YELLOW
     };
@@ -503,4 +509,134 @@ fn render_intonation_status(f: &mut Frame, app: &App, area: Rect) {
             .alignment(Alignment::Right),
         cols[1],
     );
+}
+
+// ── ヘルプメニューオーバーレイ ──────────────────────────────────────────────────
+
+/// ヘルプオーバーレイ用の中央配置Rectを計算するヘルパー。
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::vertical([
+        Constraint::Percentage((100 - percent_y) / 2),
+        Constraint::Percentage(percent_y),
+        Constraint::Percentage((100 - percent_y) / 2),
+    ])
+    .split(r);
+
+    Layout::horizontal([
+        Constraint::Percentage((100 - percent_x) / 2),
+        Constraint::Percentage(percent_x),
+        Constraint::Percentage((100 - percent_x) / 2),
+    ])
+    .split(popup_layout[1])[1]
+}
+
+/// ヘルプメニューを画面中央にオーバーレイ表示する。
+/// 2列でNORMALモードのkeybindを一覧表示し、hjklで移動、Space/Enterで実行、ESCで閉じる。
+fn render_help_overlay(f: &mut Frame, app: &App) {
+    let area = centered_rect(80, 75, f.area());
+
+    // 背景をクリアしてポップアップを描画
+    f.render_widget(Clear, area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(YELLOW))
+        .title(Span::styled(" [HELP] ", Style::default().fg(YELLOW).bold()))
+        .style(Style::default().bg(BG));
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    if inner.height < 2 { return; }
+
+    // フッターのヒント行を1行確保
+    let footer_area = Rect {
+        x:      inner.x,
+        y:      inner.y + inner.height.saturating_sub(1),
+        width:  inner.width,
+        height: 1,
+    };
+    let content_area = Rect {
+        x:      inner.x,
+        y:      inner.y,
+        width:  inner.width,
+        height: inner.height.saturating_sub(1),
+    };
+
+    // フッター
+    let footer = "hjkl/↑↓←→:移動  Space/Enter:実行  ESC:閉じる";
+    f.render_widget(
+        Paragraph::new(footer).style(Style::default().fg(DIM).bg(BG)),
+        footer_area,
+    );
+
+    // エントリを2列で並べる
+    let n = HELP_ENTRIES.len();
+    let col_width = content_area.width / 2;
+
+    let items: Vec<ListItem> = (0..n).step_by(2).flat_map(|row_start| {
+        let left_idx  = row_start;
+        let right_idx = row_start + 1;
+
+        // 左列エントリ
+        let left_selected  = left_idx == app.help_cursor;
+        let right_selected = right_idx < n && right_idx == app.help_cursor;
+
+        let left_entry  = &HELP_ENTRIES[left_idx];
+        let right_entry = HELP_ENTRIES.get(right_idx);
+
+        // 左列スパン
+        let left_key_style = if left_selected {
+            Style::default().fg(BG).bg(YELLOW).bold()
+        } else {
+            Style::default().fg(YELLOW)
+        };
+        let left_desc_style = if left_selected {
+            Style::default().fg(BG).bg(YELLOW)
+        } else {
+            Style::default().fg(FG)
+        };
+
+        let key_w = 13usize; // キー列の表示幅（固定）
+        let desc_w = (col_width as usize).saturating_sub(key_w + 1);
+
+        // UnicodeWidthStr で実際の表示幅を計算してスペースパディングを追加する
+        let left_key_display_w  = UnicodeWidthStr::width(left_entry.key);
+        let left_desc_display_w = UnicodeWidthStr::width(left_entry.desc);
+        let left_key  = format!("{}{}", left_entry.key,  " ".repeat(key_w.saturating_sub(left_key_display_w)));
+        let left_desc = format!("{}{}", left_entry.desc, " ".repeat(desc_w.saturating_sub(left_desc_display_w)));
+
+        let mut spans = vec![
+            Span::styled(left_key,  left_key_style),
+            Span::styled(" ", Style::default().bg(BG)),
+            Span::styled(left_desc, left_desc_style),
+            Span::styled(" ", Style::default().bg(BG)),
+        ];
+
+        // 右列スパン
+        if let Some(right_entry) = right_entry {
+            let right_key_style = if right_selected {
+                Style::default().fg(BG).bg(YELLOW).bold()
+            } else {
+                Style::default().fg(YELLOW)
+            };
+            let right_desc_style = if right_selected {
+                Style::default().fg(BG).bg(YELLOW)
+            } else {
+                Style::default().fg(FG)
+            };
+
+            let right_key  = format!("{}{}", right_entry.key,  " ".repeat(key_w.saturating_sub(UnicodeWidthStr::width(right_entry.key))));
+            let right_desc = format!("{}{}", right_entry.desc, " ".repeat(desc_w.saturating_sub(UnicodeWidthStr::width(right_entry.desc))));
+
+            spans.push(Span::styled(right_key,  right_key_style));
+            spans.push(Span::styled(" ", Style::default().bg(BG)));
+            spans.push(Span::styled(right_desc, right_desc_style));
+        }
+
+        vec![ListItem::new(Line::from(spans))]
+    }).collect();
+
+    let list = List::new(items).style(Style::default().bg(BG));
+    f.render_widget(list, content_area);
 }
