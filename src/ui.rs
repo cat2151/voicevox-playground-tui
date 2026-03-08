@@ -414,14 +414,11 @@ fn render_intonation_graph(f: &mut Frame, app: &mut App, area: Rect) {
     let n = app.intonation_pitches.len();
     let intonation_cursor = app.intonation_cursor;
 
-    // pitch範囲の計算（min/maxを中央に表示）
-    let min_p = app.intonation_pitches.iter().copied().fold(f64::INFINITY, f64::min);
+    // pitch範囲の計算（一番高いpitchから5行上を上端とする）
     let max_p = app.intonation_pitches.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-    let (min_p, max_p) = if min_p > max_p { (0.0, 0.0) } else { (min_p, max_p) };
-    let center = (min_p + max_p) / 2.0;
-    let half_h = (graph_h as f64 - 1.0) / 2.0;
-    let pitch_bottom = (center - half_h * 0.1).max(0.0);
-    let pitch_top    = center + half_h * 0.1;
+    let max_p = if !max_p.is_finite() { 0.0 } else { max_p };
+    let pitch_top    = max_p + 5.0 * 0.1;
+    let pitch_bottom = (pitch_top - (graph_h as f64 - 1.0) * 0.1).max(0.0);
 
     // モーラ列の幅と開始x座標を計算（全列を4ターミナル列幅に統一）
     let mut col_x: Vec<u16> = Vec::with_capacity(n);
