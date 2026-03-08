@@ -175,8 +175,8 @@ pub async fn run(app: &mut App) -> Result<()> {
             }
             Mode::Intonation => {
                 match ev {
-                    // マウスクリック: pitch設定
-                    Event::Mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column, row, .. }) => {
+                    // マウスdown/ドラッグ: pitch設定
+                    Event::Mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Drag(MouseButton::Left), column, row, .. }) => {
                         app.intonation_handle_mouse_down(column, row).await;
                     }
                     Event::Key(key) => {
