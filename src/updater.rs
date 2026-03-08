@@ -81,6 +81,17 @@ async fn check_for_update(update_available: Arc<AtomicBool>) -> Result<()> {
 /// 表でアップデートする（端末にビルドログを表示しながら cargo install を実行）。
 /// TUIを終了してから呼び出すこと。
 pub async fn run_foreground_update() -> Result<()> {
+    // Windows では実行中の exe を上書きできないため、ここから cargo install を直接実行しない。
+    if cfg!(target_os = "windows") {
+        println!("現在のバージョンでは Windows 上での自動アップデートはサポートされていません。");
+        println!("以下のコマンドを vpt 終了後に手動で実行してください:");
+        println!(
+            "  cargo install --force --git https://github.com/{}/{}",
+            REPO_OWNER, REPO_NAME
+        );
+        return Ok(());
+    }
+
     println!("アップデートを開始します...");
     println!("cargo install --force --git https://github.com/{}/{}", REPO_OWNER, REPO_NAME);
 
