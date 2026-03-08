@@ -112,6 +112,8 @@ pub struct App {
     pub intonation_cursor:     usize,
     /// 数値直接入力バッファ（非空のとき数値入力サブモード）
     pub intonation_num_buf:    String,
+    /// イントネーション編集セッション開始時のpitch値スナップショット（iキーで初期化に使う）
+    pub intonation_initial_pitches: Vec<f64>,
     /// a-zA-Zキーによる再生デバウンス期限（1秒）
     pub intonation_debounce:   Option<Instant>,
     /// イントネーション合成再生タスクのハンドル（新規再生時にabortして上書き）
@@ -177,6 +179,7 @@ impl App {
             intonation_speaker_id: 0,
             intonation_mora_texts: Vec::new(),
             intonation_pitches:    Vec::new(),
+            intonation_initial_pitches: Vec::new(),
             intonation_query:      serde_json::Value::Null,
             intonation_cursor:     0,
             intonation_num_buf:    String::new(),

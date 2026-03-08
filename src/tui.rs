@@ -202,6 +202,14 @@ pub async fn run(app: &mut App) -> Result<()> {
                         KeyCode::Backspace if num_active => {
                             app.intonation_num_buf.pop();
                         }
+                        // Space: 現在のintonationで即時再生
+                        KeyCode::Char(' ') => {
+                            app.intonation_play_now().await;
+                        }
+                        // i: pitch値を初期値にリセットして再生（数値入力中は無効）
+                        KeyCode::Char('i') if !num_active => {
+                            app.intonation_reset_to_initial().await;
+                        }
                         // 数字: 数値入力バッファに追記
                         KeyCode::Char(c) if c.is_ascii_digit() => {
                             app.intonation_num_buf.push(c);
