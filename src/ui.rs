@@ -7,6 +7,8 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
+use std::collections::HashSet;
+
 use crate::app::{App, Mode, HELP_ENTRIES};
 
 // ── Monokai パレット ───────────────────────────────────────────────────────────
@@ -544,7 +546,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 }
 
 /// ヘルプメニューを画面中央にオーバーレイ表示する。
-/// 2列でNORMALモードのkeybindを一覧表示し、hjklで移動、Space/Enterで実行、ESCで閉じる。
+/// 2列でNORMALモードのkeybindを一覧表示し、キー入力で前方一致ハイライト/完全一致で実行、ESCで閉じる。
 fn render_help_overlay(f: &mut Frame, app: &App) {
     let area = centered_rect(80, 75, f.area());
 
@@ -577,7 +579,7 @@ fn render_help_overlay(f: &mut Frame, app: &App) {
     };
 
     // フッター
-    let footer = "hjkl/↑↓←→:移動  Space/Enter:実行  ESC:閉じる";
+    let footer = "キーを入力してハイライト/実行  ESC:閉じる";
     f.render_widget(
         Paragraph::new(footer).style(Style::default().fg(DIM).bg(BG)),
         footer_area,
@@ -610,13 +612,15 @@ fn render_help_overlay(f: &mut Frame, app: &App) {
     let max_left_desc_w = natural_left_desc_w.min(per_col_desc_max);
     let max_right_desc_w = natural_right_desc_w.min(per_col_desc_max);
 
+    let matching: HashSet<usize> = app.help_matching_indices().into_iter().collect();
+
     let items: Vec<ListItem> = (0..n).step_by(2).flat_map(|row_start| {
         let left_idx  = row_start;
         let right_idx = row_start + 1;
 
         // 左列エントリ
-        let left_selected  = left_idx == app.help_cursor;
-        let right_selected = right_idx < n && right_idx == app.help_cursor;
+        let left_selected  = matching.contains(&left_idx);
+        let right_selected = right_idx < n && matching.contains(&right_idx);
 
         let left_entry  = &HELP_ENTRIES[left_idx];
         let right_entry = HELP_ENTRIES.get(right_idx);

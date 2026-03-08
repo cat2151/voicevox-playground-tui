@@ -95,8 +95,8 @@ pub struct App {
     pub active_tab:     usize,
     /// コマンドモード（":tabnew" など）の入力バッファ
     pub command_buf:    String,
-    /// ヘルプメニューの選択カーソル位置
-    pub help_cursor:    usize,
+    /// ヘルプモードで入力中のキーバッファ（前方一致ハイライト・完全一致実行に使う）
+    pub help_key_buf:   String,
     // ── イントネーション編集 ──────────────────────────────────────────────────────
     /// 行インデックスごとのイントネーション編集データ（lines と同じ長さで同期される）
     pub line_intonations:      Vec<Option<IntonationLineData>>,
@@ -175,7 +175,7 @@ impl App {
             tabs,
             active_tab:    0,
             command_buf:   String::new(),
-            help_cursor:   0,
+            help_key_buf:  String::new(),
             intonation_speaker_id: 0,
             intonation_mora_texts: Vec::new(),
             intonation_pitches:    Vec::new(),
