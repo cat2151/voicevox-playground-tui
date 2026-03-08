@@ -2,7 +2,7 @@
 
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
     Frame,
 };
 use unicode_width::UnicodeWidthStr;
@@ -77,12 +77,6 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         render_status(f, app, chunks[1]);
     }
 
-    // アップデートダイアログをオーバーレイとして描画する
-    match app.mode {
-        Mode::UpdateAvailableDialog => render_update_available_dialog(f, f.area()),
-        Mode::QuitWithUpdateDialog  => render_quit_update_dialog(f, f.area()),
-        _ => {}
-    }
 }
 
 fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
@@ -239,7 +233,6 @@ fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
     let hint = match app.mode {
         Mode::Normal => "j/k:move  i:edit  o/O:newline  dd:delete  p/P:paste  \"+p/\"+P:clip-paste  zm/zr:fold  Space/Enter:play  v:intonation  q:quit",
         Mode::Insert => "^A:home  ^E:end  ^K:kill  ^W:del-word  Esc/Enter:confirm",
-        Mode::UpdateAvailableDialog | Mode::QuitWithUpdateDialog => "",
         Mode::Command => "",
         Mode::Intonation => "",
     };
@@ -295,18 +288,6 @@ fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
                 .alignment(Alignment::Right),
             cols[1],
         );
-    }
-}
-
-/// ダイアログ用の中央配置Rectを計算する
-fn centered_dialog(width: u16, height: u16, area: Rect) -> Rect {
-    let x = area.x + area.width.saturating_sub(width) / 2;
-    let y = area.y + area.height.saturating_sub(height) / 2;
-    Rect {
-        x,
-        y,
-        width:  width.min(area.width),
-        height: height.min(area.height),
     }
 }
 
@@ -417,57 +398,4 @@ fn render_intonation_status(f: &mut Frame, app: &App, area: Rect) {
             .alignment(Alignment::Right),
         cols[1],
     );
-}
-
-/// アップデート利用可能ダイアログ（自動検出時）
-fn render_update_available_dialog(f: &mut Frame, area: Rect) {
-    let dialog_area = centered_dialog(44, 8, area);
-    f.render_widget(Clear, dialog_area);
-
-    let text = vec![
-        Line::from(""),
-        Line::from(Span::styled(
-            "  新しいバージョンが利用可能です！",
-            Style::default().fg(ORANGE).bold(),
-        )),
-        Line::from(""),
-        Line::from(Span::styled("  f : 表でアップデート（ビルドログを表示）", Style::default().fg(FG))),
-        Line::from(Span::styled("  Esc : 今はアップデートしない", Style::default().fg(DIM))),
-        Line::from(""),
-    ];
-
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(ORANGE))
-        .title(Span::styled(" Update Available ", Style::default().fg(ORANGE).bold()))
-        .style(Style::default().bg(BG));
-
-    f.render_widget(Paragraph::new(text).block(block), dialog_area);
-}
-
-/// アップデート選択ダイアログ（qキー押下時）
-fn render_quit_update_dialog(f: &mut Frame, area: Rect) {
-    let dialog_area = centered_dialog(44, 9, area);
-    f.render_widget(Clear, dialog_area);
-
-    let text = vec![
-        Line::from(""),
-        Line::from(Span::styled(
-            "  新しいバージョンが利用可能です！",
-            Style::default().fg(ORANGE).bold(),
-        )),
-        Line::from(""),
-        Line::from(Span::styled("  f : 表でアップデートして終了", Style::default().fg(FG))),
-        Line::from(Span::styled("  q : アップデートせず終了", Style::default().fg(FG))),
-        Line::from(Span::styled("  Esc : キャンセル（終了しない）", Style::default().fg(DIM))),
-        Line::from(""),
-    ];
-
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(ORANGE))
-        .title(Span::styled(" Update Available ", Style::default().fg(ORANGE).bold()))
-        .style(Style::default().bg(BG));
-
-    f.render_widget(Paragraph::new(text).block(block), dialog_area);
 }

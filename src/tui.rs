@@ -31,12 +31,10 @@ pub async fn run(app: &mut App) -> Result<()> {
 
         terminal.draw(|f| ui::draw(f, app))?;
 
-        // アップデートが利用可能になったらダイアログを表示する
-        if app.update_available.load(Ordering::Relaxed)
-            && !app.update_dismissed
-            && app.mode == Mode::Normal
-        {
-            app.mode = Mode::UpdateAvailableDialog;
+        // アップデートが利用可能になったら自動的にアップデートを開始する
+        if app.update_available.load(Ordering::Relaxed) && app.mode == Mode::Normal {
+            app.update_action = Some(UpdateAction::Foreground);
+            break;
         }
 
         if !event::poll(Duration::from_millis(100))? {
@@ -57,12 +55,10 @@ pub async fn run(app: &mut App) -> Result<()> {
                 if let Event::Key(key) = ev {
                     match key.code {
                         KeyCode::Char('q') => {
-                            // アップデートが利用可能で未却下の場合はダイアログを表示
-                            if app.update_available.load(Ordering::Relaxed) && !app.update_dismissed {
-                                app.mode = Mode::QuitWithUpdateDialog;
-                            } else {
-                                break;
+                            if app.update_available.load(Ordering::Relaxed) {
+                                app.update_action = Some(UpdateAction::Foreground);
                             }
+                            break;
                         }
                         KeyCode::Char('j') | KeyCode::Down  => app.move_cursor(1).await,
                         KeyCode::Char('k') | KeyCode::Up    => app.move_cursor(-1).await,
@@ -221,42 +217,6 @@ pub async fn run(app: &mut App) -> Result<()> {
                         (KeyCode::Char(c), KeyModifiers::NONE)
                         | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
                             app.command_buf.push(c);
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            Mode::UpdateAvailableDialog => {
-                if let Event::Key(key) = ev {
-                    match key.code {
-                        KeyCode::Char('f') => {
-                            app.update_action = Some(UpdateAction::Foreground);
-                            break;
-                        }
-                        KeyCode::Esc => {
-                            // ダイアログを却下して通常操作に戻る
-                            app.update_dismissed = true;
-                            app.mode = Mode::Normal;
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            Mode::QuitWithUpdateDialog => {
-                if let Event::Key(key) = ev {
-                    match key.code {
-                        KeyCode::Char('q') => {
-                            // アップデートせず終了
-                            break;
-                        }
-                        KeyCode::Char('f') => {
-                            app.update_action = Some(UpdateAction::Foreground);
-                            break;
-                        }
-                        KeyCode::Esc => {
-                            // 終了をキャンセルして通常操作に戻る
-                            app.update_dismissed = true;
-                            app.mode = Mode::Normal;
                         }
                         _ => {}
                     }

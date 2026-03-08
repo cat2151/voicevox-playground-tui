@@ -104,8 +104,6 @@ impl App {
     pub fn status_display(&self) -> &str {
         if self.mode == Mode::Insert && self.is_fetching.load(Ordering::Relaxed) {
             "[fetching...]"
-        } else if self.mode == Mode::UpdateAvailableDialog || self.mode == Mode::QuitWithUpdateDialog {
-            "[update available]"
         } else {
             &self.status_msg
         }
