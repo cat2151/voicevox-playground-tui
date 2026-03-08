@@ -107,6 +107,19 @@ pub struct App {
     pub intonation_debounce:   Option<Instant>,
     /// イントネーション合成再生タスクのハンドル（新規再生時にabortして上書き）
     pub intonation_play_handle: Option<JoinHandle<()>>,
+    // ── イントネーション擬似折れ線グラフ（マウスイベント処理用） ──────────────────
+    /// グラフ描画エリアの左上x座標（絶対座標）
+    pub intonation_graph_x:         u16,
+    /// グラフ描画エリアの左上y座標（絶対座標）
+    pub intonation_graph_y:         u16,
+    /// グラフ描画エリアの高さ（行数）
+    pub intonation_graph_h:         u16,
+    /// グラフの先頭行（row 0）に対応するpitch値
+    pub intonation_graph_pitch_top: f64,
+    /// 各モーラ列の開始x座標（絶対座標）
+    pub intonation_mora_col_x:      Vec<u16>,
+    /// 各モーラ列の幅（端末列数）
+    pub intonation_mora_col_w:      Vec<u16>,
 }
 
 impl App {
@@ -158,6 +171,12 @@ impl App {
             intonation_num_buf:    String::new(),
             intonation_debounce:   None,
             intonation_play_handle: None,
+            intonation_graph_x:         0,
+            intonation_graph_y:         0,
+            intonation_graph_h:         0,
+            intonation_graph_pitch_top: 0.0,
+            intonation_mora_col_x:      Vec::new(),
+            intonation_mora_col_w:      Vec::new(),
         }
     }
 

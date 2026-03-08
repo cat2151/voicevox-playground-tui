@@ -6,7 +6,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyModifiers},
+    event::{self, Event, KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+            EnableMouseCapture, DisableMouseCapture},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -19,7 +20,7 @@ use crate::ui;
 pub async fn run(app: &mut App) -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend      = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -150,7 +151,12 @@ pub async fn run(app: &mut App) -> Result<()> {
                 }
             }
             Mode::Intonation => {
-                if let Event::Key(key) = ev {
+                match ev {
+                    // マウスクリック: pitch設定
+                    Event::Mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column, row, .. }) => {
+                        app.intonation_handle_mouse_down(column, row).await;
+                    }
+                    Event::Key(key) => {
                     let num_active = !app.intonation_num_buf.is_empty();
                     match key.code {
                         // Esc: 数値入力中ならキャンセル、そうでなければイントネーション確定してNormalへ
@@ -197,6 +203,8 @@ pub async fn run(app: &mut App) -> Result<()> {
                         }
                         _ => {}
                     }
+                    }
+                    _ => {}
                 }
             }
             Mode::Command => {
@@ -226,6 +234,6 @@ pub async fn run(app: &mut App) -> Result<()> {
     }
 
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
     Ok(())
 }
