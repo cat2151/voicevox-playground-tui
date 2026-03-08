@@ -585,7 +585,17 @@ fn render_help_overlay(f: &mut Frame, app: &App) {
 
     // エントリを2列で並べる
     let n = HELP_ENTRIES.len();
-    let col_width = content_area.width / 2;
+
+    // 左列・右列それぞれの最大desc表示幅を計算（ターミナル幅に依存しない固定幅）
+    let max_left_desc_w = (0..n).step_by(2)
+        .map(|i| UnicodeWidthStr::width(HELP_ENTRIES[i].desc))
+        .max()
+        .unwrap_or(0);
+    let max_right_desc_w = (1..n).step_by(2)
+        .map(|i| UnicodeWidthStr::width(HELP_ENTRIES[i].desc))
+        .max()
+        .unwrap_or(0);
+    let key_w = 13usize; // キー列の表示幅（固定）
 
     let items: Vec<ListItem> = (0..n).step_by(2).flat_map(|row_start| {
         let left_idx  = row_start;
@@ -610,20 +620,17 @@ fn render_help_overlay(f: &mut Frame, app: &App) {
             Style::default().fg(FG)
         };
 
-        let key_w = 13usize; // キー列の表示幅（固定）
-        let desc_w = (col_width as usize).saturating_sub(key_w + 1);
-
         // UnicodeWidthStr で実際の表示幅を計算してスペースパディングを追加する
         let left_key_display_w  = UnicodeWidthStr::width(left_entry.key);
         let left_desc_display_w = UnicodeWidthStr::width(left_entry.desc);
         let left_key  = format!("{}{}", left_entry.key,  " ".repeat(key_w.saturating_sub(left_key_display_w)));
-        let left_desc = format!("{}{}", left_entry.desc, " ".repeat(desc_w.saturating_sub(left_desc_display_w)));
+        let left_desc = format!("{}{}", left_entry.desc, " ".repeat(max_left_desc_w.saturating_sub(left_desc_display_w)));
 
         let mut spans = vec![
             Span::styled(left_key,  left_key_style),
             Span::styled(" ", Style::default().bg(BG)),
             Span::styled(left_desc, left_desc_style),
-            Span::styled(" ", Style::default().bg(BG)),
+            Span::styled("   ", Style::default().bg(BG)), // 左右列の間を3桁固定
         ];
 
         // 右列スパン
@@ -640,7 +647,7 @@ fn render_help_overlay(f: &mut Frame, app: &App) {
             };
 
             let right_key  = format!("{}{}", right_entry.key,  " ".repeat(key_w.saturating_sub(UnicodeWidthStr::width(right_entry.key))));
-            let right_desc = format!("{}{}", right_entry.desc, " ".repeat(desc_w.saturating_sub(UnicodeWidthStr::width(right_entry.desc))));
+            let right_desc = format!("{}{}", right_entry.desc, " ".repeat(max_right_desc_w.saturating_sub(UnicodeWidthStr::width(right_entry.desc))));
 
             spans.push(Span::styled(right_key,  right_key_style));
             spans.push(Span::styled(" ", Style::default().bg(BG)));
