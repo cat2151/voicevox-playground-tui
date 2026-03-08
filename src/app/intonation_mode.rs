@@ -166,6 +166,8 @@ impl App {
 
         self.intonation_cursor = mora_idx;
         self.intonation_pitches[mora_idx] = new_pitch;
+        // 数値入力サブモード中にクリックした場合はバッファをクリアして終了する
+        self.intonation_num_buf.clear();
         voicevox::set_mora_pitches(&mut self.intonation_query, &self.intonation_pitches);
         self.intonation_debounce = Some(Instant::now() + Duration::from_secs(1));
         self.status_msg = format!(

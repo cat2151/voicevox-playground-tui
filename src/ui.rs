@@ -398,24 +398,22 @@ fn render_intonation_graph(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     let n = app.intonation_pitches.len();
-    let pitches = app.intonation_pitches.clone();
-    let mora_texts = app.intonation_mora_texts.clone();
     let intonation_cursor = app.intonation_cursor;
 
     // pitch範囲の計算（min/maxを中央に表示）
-    let min_p = pitches.iter().cloned().fold(f64::INFINITY, f64::min);
-    let max_p = pitches.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let min_p = app.intonation_pitches.iter().copied().fold(f64::INFINITY, f64::min);
+    let max_p = app.intonation_pitches.iter().copied().fold(f64::NEG_INFINITY, f64::max);
     let (min_p, max_p) = if min_p > max_p { (0.0, 0.0) } else { (min_p, max_p) };
     let center = (min_p + max_p) / 2.0;
-    let half_h = (graph_h as f64) / 2.0;
+    let half_h = (graph_h as f64 - 1.0) / 2.0;
     let pitch_bottom = (center - half_h * 0.1).max(0.0);
-    let pitch_top    = pitch_bottom + (graph_h as f64 - 1.0) * 0.1;
+    let pitch_top    = center + half_h * 0.1;
 
     // モーラ列の幅と開始x座標を計算（モーラテキストの表示幅に合わせる）
     let mut col_x: Vec<u16> = Vec::with_capacity(n);
     let mut col_w: Vec<u16> = Vec::with_capacity(n);
     let mut cx = area.x;
-    for (i, text) in mora_texts.iter().enumerate() {
+    for (i, text) in app.intonation_mora_texts.iter().enumerate() {
         let w = UnicodeWidthStr::width(text.as_str()) as u16
             + if i + 1 < n { 1 } else { 0 };
         col_x.push(cx);
@@ -423,25 +421,28 @@ fn render_intonation_graph(f: &mut Frame, app: &mut App, area: Rect) {
         cx += w;
     }
 
-    // Appにグラフ情報を保存（マウスイベント処理用）
-    app.intonation_graph_x         = area.x;
-    app.intonation_graph_y         = area.y;
-    app.intonation_graph_h         = graph_h;
-    app.intonation_graph_pitch_top = pitch_top;
-    app.intonation_mora_col_x      = col_x.clone();
-    app.intonation_mora_col_w      = col_w.clone();
-
     // pitch_top を整数単位（0.1刻み）に変換して整数演算で比較する
     let pitch_top_unit    = (pitch_top    * 10.0).round() as i64;
     let pitch_bottom_unit = (pitch_bottom * 10.0).round() as i64;
 
-    // グラフの各行を描画
+    // Appにグラフ情報を保存（マウスイベント処理用）— cloneなしでmove代入
+    app.intonation_graph_x         = area.x;
+    app.intonation_graph_y         = area.y;
+    app.intonation_graph_h         = graph_h;
+    app.intonation_graph_pitch_top = pitch_top;
+    app.intonation_mora_col_x      = col_x;
+    app.intonation_mora_col_w      = col_w;
+
+    // グラフの各行を描画（app.intonation_pitches と app.intonation_mora_col_w を参照）
     let mut graph_lines: Vec<Line> = Vec::with_capacity(graph_h as usize);
     for r in 0..graph_h {
-        let spans: Vec<Span> = pitches.iter().enumerate().map(|(i, &p)| {
+        let spans: Vec<Span> = app.intonation_pitches.iter()
+            .zip(&app.intonation_mora_col_w)
+            .enumerate()
+            .map(|(i, (&p, &col_w))| {
+            let w        = col_w as usize;
             let p_unit   = (p * 10.0).round() as i64;
             let mora_row = pitch_top_unit - p_unit; // このモーラのマーカー行
-            let w        = col_w[i] as usize;
 
             let is_out  = p_unit > pitch_top_unit || p_unit < pitch_bottom_unit;
             let is_here = mora_row == r as i64;
@@ -486,7 +487,7 @@ fn render_intonation_graph(f: &mut Frame, app: &mut App, area: Rect) {
 
 /// イントネーション編集モードのステータスバーを描画する。
 fn render_intonation_status(f: &mut Frame, app: &App, area: Rect) {
-    let hint = "a-z:mora pitch+0.1  A-Z:pitch-0.1  0-9:直接入力  Esc/Enter:確定してNormalへ";
+    let hint = "a-z:mora pitch+0.1  A-Z:pitch-0.1  0-9:直接入力  マウスクリック:pitch設定  Esc/Enter:確定してNormalへ";
     let hint_width = UnicodeWidthStr::width(hint) as u16 + 1;
     let cols = Layout::horizontal([
         Constraint::Min(0),

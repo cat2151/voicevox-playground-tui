@@ -24,6 +24,16 @@ pub async fn run(app: &mut App) -> Result<()> {
     let backend      = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
+    // Drop時にraw mode・代替画面・マウスキャプチャを確実に復帰する
+    struct TerminalGuard;
+    impl Drop for TerminalGuard {
+        fn drop(&mut self) {
+            let _ = disable_raw_mode();
+            let _ = execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture);
+        }
+    }
+    let _guard = TerminalGuard;
+
     loop {
         // イントネーション編集モードのデバウンス再生チェック（100msポーリング周期）
         if app.mode == Mode::Intonation {
@@ -233,7 +243,6 @@ pub async fn run(app: &mut App) -> Result<()> {
         }
     }
 
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+    // _guard がDrop時に端末を復帰させる
     Ok(())
 }
