@@ -81,9 +81,13 @@ impl App {
         let split_lines = tag::split_by_ctx_change(&text);
         if self.cursor < self.lines.len() {
             // split_by_ctx_change は常に1要素以上を返す
-            // テキストが変わったので現在行のイントネーションをクリアする
-            self.line_intonations[self.cursor] = None;
-            self.lines[self.cursor] = split_lines.first().cloned().unwrap_or_default();
+            // テキストが変わった場合のみ現在行のイントネーションをクリアする
+            if let Some(first_line) = split_lines.first() {
+                if &self.lines[self.cursor] != first_line {
+                    self.line_intonations[self.cursor] = None;
+                }
+                self.lines[self.cursor] = first_line.clone();
+            }
             for (i, extra_line) in split_lines[1..].iter().enumerate() {
                 self.lines.insert(self.cursor + 1 + i, extra_line.clone());
                 self.line_intonations.insert(self.cursor + 1 + i, None);

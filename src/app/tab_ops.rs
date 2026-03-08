@@ -4,8 +4,8 @@ use super::App;
 
 impl App {
     /// アクティブタブの現在状態をtabsスロットにswapで書き込む内部ヘルパー。
-    /// クローンを避けるため、self.linesとtabs[active_tab].0を入れ替える。
-    /// 呼び出し後、tabs[active_tab].0には正しいlinesが、self.linesには古いスロット値が入る。
+    /// クローンを避けるため、self.linesとtabs[active_tab].0、self.line_intonationsとtabs[active_tab].1を入れ替える。
+    /// 呼び出し後、tabs[active_tab].0/1には正しいlines/line_intonationsが、self.lines/self.line_intonationsには古いスロット値が入る。
     fn save_current_tab(&mut self) {
         if let Some((tab_lines, tab_intonations, tab_cursor, tab_folded)) = self.tabs.get_mut(self.active_tab) {
             std::mem::swap(&mut self.lines, tab_lines);
