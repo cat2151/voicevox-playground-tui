@@ -342,7 +342,7 @@ fn render_intonation_editor(f: &mut Frame, app: &mut App, area: Rect) {
         rows[1],
     );
 
-    // 3行目: モーラ一覧
+    // 3行目: モーラ一覧（各列を4ターミナル列幅に統一）
     let mora_spans: Vec<Span> = app.intonation_mora_texts.iter().enumerate()
         .flat_map(|(i, text)| {
             let style = if i == app.intonation_cursor {
@@ -350,8 +350,9 @@ fn render_intonation_editor(f: &mut Frame, app: &mut App, area: Rect) {
             } else {
                 Style::default().fg(FG)
             };
-            let sep = if i + 1 < app.intonation_mora_texts.len() { " " } else { "" };
-            let label = format!("{}{}", text, sep);
+            let text_w = UnicodeWidthStr::width(text.as_str());
+            let padding = " ".repeat(4usize.saturating_sub(text_w));
+            let label = format!("{}{}", text, padding);
             [Span::styled(label, style)]
         })
         .collect();
@@ -360,7 +361,7 @@ fn render_intonation_editor(f: &mut Frame, app: &mut App, area: Rect) {
         rows[2],
     );
 
-    // 4行目: pitch一覧
+    // 4行目: pitch一覧（各列を4ターミナル列幅に統一）
     let pitch_spans: Vec<Span> = app.intonation_pitches.iter().enumerate()
         .flat_map(|(i, &pitch)| {
             let style = if i == app.intonation_cursor {
@@ -368,8 +369,8 @@ fn render_intonation_editor(f: &mut Frame, app: &mut App, area: Rect) {
             } else {
                 Style::default().fg(GREEN)
             };
-            let sep = if i + 1 < app.intonation_pitches.len() { " " } else { "" };
-            let label = format!("{:.1}{}", pitch, sep);
+            let s = format!("{:.1}", pitch);
+            let label = format!("{:<4}", s);
             [Span::styled(label, style)]
         })
         .collect();
@@ -415,13 +416,12 @@ fn render_intonation_graph(f: &mut Frame, app: &mut App, area: Rect) {
     let pitch_bottom = (center - half_h * 0.1).max(0.0);
     let pitch_top    = center + half_h * 0.1;
 
-    // モーラ列の幅と開始x座標を計算（モーラテキストの表示幅に合わせる）
+    // モーラ列の幅と開始x座標を計算（全列を4ターミナル列幅に統一）
     let mut col_x: Vec<u16> = Vec::with_capacity(n);
     let mut col_w: Vec<u16> = Vec::with_capacity(n);
     let mut cx = area.x;
-    for (i, text) in app.intonation_mora_texts.iter().enumerate() {
-        let w = UnicodeWidthStr::width(text.as_str()) as u16
-            + if i + 1 < n { 1 } else { 0 };
+    for _ in 0..n {
+        let w: u16 = 4;
         col_x.push(cx);
         col_w.push(w);
         cx += w;
