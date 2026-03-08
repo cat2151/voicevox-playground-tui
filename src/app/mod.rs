@@ -3,7 +3,7 @@
 mod insert_mode;
 mod normal_mode;
 mod tab_ops;
-pub(crate) mod utils;
+mod utils;
 
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
