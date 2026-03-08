@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::Deserialize;
 
 // ── APIレスポンス型 ────────────────────────────────────────────────────────────
@@ -36,40 +36,122 @@ pub struct SpeakerTable {
     pub default_id:    u32,
     pub default_char:  String,
     pub default_style: String,
-    /// VOICEVOX APIのベースURL（voicevox.rsが参照する）
-    pub base_url:    String,
+    /// style_id → VOICEVOX APIのベースURL（複数エンジン対応）
+    pub speaker_base_url: HashMap<u32, String>,
 }
 
 static TABLE: OnceLock<SpeakerTable> = OnceLock::new();
 
-/// 起動時に1回だけ呼ぶ。
-pub async fn load(base_url: &str) -> Result<()> {
-    let url = format!("{base_url}/speakers");
-    let speakers: Vec<Speaker> = reqwest::get(&url)
-        .await
-        .context("GET /speakers に接続できなかった。VOICEVOXが起動しているか確認してくれ")?
-        .error_for_status()?
-        .json()
-        .await?;
-
-    let mut by_name     = HashMap::new();
-    let mut by_style_id = HashMap::new();
-    let mut char_names  = Vec::new();
+/// 起動時に1回だけ呼ぶ。複数のエンジンURLを受け取り、応答したものをすべてマージする。
+/// 1つも応答しなかった場合はエラーを返す。
+pub async fn load(base_urls: &[&str]) -> Result<()> {
+    let mut by_name          = HashMap::new();
+    let mut by_style_id      = HashMap::new();
+    let mut char_names       = Vec::new();
     let mut char_styles: HashMap<String, Vec<(String, u32)>> = HashMap::new();
-    let mut style_name_set = std::collections::BTreeSet::new();
+    let mut style_name_set   = std::collections::BTreeSet::new();
+    let mut speaker_base_url = HashMap::new();
+    let mut fallback_speakers: Vec<Speaker> = Vec::new();
+    let mut loaded_any       = false;
+    let mut load_errors: Vec<String> = Vec::new();
 
-    for speaker in &speakers {
-        if !char_names.contains(&speaker.name) {
-            char_names.push(speaker.name.clone());
+    for &base_url in base_urls {
+        let url = format!("{base_url}/speakers");
+        let speakers: Vec<Speaker> = match reqwest::get(&url).await {
+            Ok(resp) => match resp.error_for_status() {
+                Ok(resp) => match resp.json().await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        load_errors.push(format!("{base_url}: JSONデコード失敗 ({e})"));
+                        continue;
+                    }
+                },
+                Err(e) => {
+                    load_errors.push(format!("{base_url}: HTTPエラー ({e})"));
+                    continue;
+                }
+            },
+            Err(e) => {
+                load_errors.push(format!("{base_url}: 接続失敗 ({e})"));
+                continue;
+            }
+        };
+
+        if !loaded_any {
+            fallback_speakers = speakers.clone();
+            loaded_any = true;
         }
-        for style in &speaker.styles {
-            by_name.insert((speaker.name.clone(), style.name.clone()), style.id);
-            by_style_id.insert(style.id, (speaker.name.clone(), style.name.clone()));
-            style_name_set.insert(style.name.clone());
-            char_styles.entry(speaker.name.clone())
-                .or_default()
-                .push((style.name.clone(), style.id));
+
+        for speaker in &speakers {
+            if !char_names.contains(&speaker.name) {
+                char_names.push(speaker.name.clone());
+            }
+            for style in &speaker.styles {
+                // (キャラ名, スタイル名) -> style_id の衝突検出
+                let name_key = (speaker.name.clone(), style.name.clone());
+                if let Some(&existing_id) = by_name.get(&name_key) {
+                    if existing_id != style.id {
+                        return Err(anyhow::anyhow!(
+                            "複数エンジンの /speakers で (キャラ名, スタイル名) が衝突しました: {:?} に対して style_id {} と {} が競合しています",
+                            name_key, existing_id, style.id,
+                        ));
+                    }
+                } else {
+                    by_name.insert(name_key, style.id);
+                }
+
+                // style_id -> (キャラ名, スタイル名) の衝突検出
+                if let Some((existing_char, existing_style)) = by_style_id.get(&style.id) {
+                    if *existing_char != speaker.name || *existing_style != style.name {
+                        return Err(anyhow::anyhow!(
+                            "複数エンジンの /speakers で style_id が衝突しました: id={} が ({:?}, {:?}) と ({:?}, {:?}) で競合しています",
+                            style.id, existing_char, existing_style, speaker.name, style.name,
+                        ));
+                    }
+                } else {
+                    by_style_id.insert(style.id, (speaker.name.clone(), style.name.clone()));
+                }
+
+                style_name_set.insert(style.name.clone());
+
+                // char_styles の重複/矛盾検出
+                let entry = char_styles.entry(speaker.name.clone()).or_default();
+                if let Some((existing_style_name, _)) = entry.iter().find(|(_, id)| *id == style.id) {
+                    if *existing_style_name != style.name {
+                        return Err(anyhow::anyhow!(
+                            "複数エンジンの /speakers で char_styles が矛盾しています: キャラ {:?} の style_id {} が {:?} と {:?} で競合しています",
+                            speaker.name, style.id, existing_style_name, style.name,
+                        ));
+                    }
+                } else {
+                    entry.push((style.name.clone(), style.id));
+                }
+
+                // style_id -> base_url の衝突検出
+                if let Some(existing_url) = speaker_base_url.get(&style.id) {
+                    if existing_url != base_url {
+                        return Err(anyhow::anyhow!(
+                            "複数エンジンの /speakers で style_id と base_url の対応が衝突しました: id={} が {} と {} に紐づいています",
+                            style.id, existing_url, base_url,
+                        ));
+                    }
+                } else {
+                    speaker_base_url.insert(style.id, base_url.to_string());
+                }
+            }
         }
+    }
+
+    if !loaded_any {
+        let detail = if load_errors.is_empty() {
+            String::new()
+        } else {
+            format!("\n{}", load_errors.join("\n"))
+        };
+        return Err(anyhow::anyhow!(
+            "GET /speakers に接続できなかった。VOICEVOXが起動しているか確認してくれ{}",
+            detail
+        ));
     }
 
     let style_names: Vec<String> = style_name_set.into_iter().collect();
@@ -80,7 +162,7 @@ pub async fn load(base_url: &str) -> Result<()> {
         if let Some((char_name, style_name)) = by_style_id.get(&3) {
             (3u32, char_name.clone(), style_name.clone())
         } else {
-            speakers.iter()
+            fallback_speakers.iter()
                 .flat_map(|sp| sp.styles.iter().map(move |st| (st.id, sp.name.clone(), st.name.clone())))
                 .next()
                 .unwrap_or((0, String::new(), String::new()))
@@ -89,7 +171,7 @@ pub async fn load(base_url: &str) -> Result<()> {
     TABLE.set(SpeakerTable {
         by_name, by_style_id, char_styles, char_names, style_names,
         default_id, default_char, default_style,
-        base_url: base_url.to_string(),
+        speaker_base_url,
     }).ok();
     Ok(())
 }
@@ -143,6 +225,6 @@ pub(crate) fn init_test_table() {
         default_id:    3,
         default_char:  "ずんだもん".to_string(),
         default_style: "ノーマル".to_string(),
-        base_url:      String::new(),
+        speaker_base_url: HashMap::new(),
     }).ok();
 }

@@ -129,12 +129,16 @@ async fn wait_for_engine(base_url: &str) -> Result<()> {
 }
 
 /// エンジンが起動していなければ自動起動し、起動完了まで待機する。
-/// すでに起動済みの場合は何もしない。
-pub async fn ensure_engine_running(base_url: &str) -> Result<()> {
-    if is_engine_running(base_url).await {
-        return Ok(());
+/// base_urlsのうち1つでも起動済みであれば何もしない。
+/// 1つも起動していない場合はVOICEVOXを自動起動し、base_urls[0]で待機する。
+pub async fn ensure_engine_running(base_urls: &[&str]) -> Result<()> {
+    for &url in base_urls {
+        if is_engine_running(url).await {
+            return Ok(());
+        }
     }
 
+    let primary_url = base_urls.first().copied().unwrap_or("http://localhost:50021");
     let exe = find_voicevox_executable().ok_or_else(|| {
         anyhow::anyhow!(
             "VOICEVOXの実行ファイルが見つかりませんでした。\nVOICEVOXをインストールしてから再度お試しください。"
@@ -145,7 +149,7 @@ pub async fn ensure_engine_running(base_url: &str) -> Result<()> {
     launch_voicevox(&exe)?;
 
     eprintln!("VOICEVOXエンジンが起動するまで待機しています...");
-    wait_for_engine(base_url).await?;
+    wait_for_engine(primary_url).await?;
     eprintln!("VOICEVOXエンジンの起動が完了しました。");
 
     Ok(())
