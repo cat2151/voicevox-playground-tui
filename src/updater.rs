@@ -78,45 +78,76 @@ async fn check_for_update(update_available: Arc<AtomicBool>) -> Result<()> {
     Ok(())
 }
 
+/// ユニークなファイル名を生成するためのタイムスタンプ（ナノ秒）を返す
+#[cfg(target_os = "windows")]
+fn unique_suffix() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0)
+}
+
+/// Windowsでのアップデートを行うバッチファイルをspawnする。
+/// スクリプトは: メインプロセス終了を待つ → cargo install → vpt を起動。
+/// ユニークなファイル名を使い、実行後に自身を削除する。
+#[cfg(target_os = "windows")]
+fn spawn_updater_process() -> Result<()> {
+    let suffix = unique_suffix();
+    let script_path = std::env::temp_dir().join(format!("vpt_updater_{}.bat", suffix));
+    let script = format!(
+        "@echo off\r\ntimeout /t 3 /nobreak >nul\r\ncargo install --force --git https://github.com/{}/{}\r\nvpt\r\n(goto) 2>nul & del \"%~f0\"\r\n",
+        REPO_OWNER, REPO_NAME
+    );
+    std::fs::write(&script_path, &script)?;
+    let script_str = script_path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Updater script path contains invalid UTF-8"))?;
+    std::process::Command::new("cmd")
+        .args(["/C", "start", "vpt updater", script_str])
+        .spawn()?;
+    Ok(())
+}
+
 /// 表でアップデートする（端末にビルドログを表示しながら cargo install を実行）。
 /// TUIを終了してから呼び出すこと。
+/// Windowsではexeファイルのロックにより直接インストールできないため、バッチファイルを使用する。
 pub async fn run_foreground_update() -> Result<()> {
-    // Windows では実行中の exe を上書きできないため、ここから cargo install を直接実行しない。
-    if cfg!(target_os = "windows") {
-        println!("現在のバージョンでは Windows 上での自動アップデートはサポートされていません。");
-        println!("以下のコマンドを vpt 終了後に手動で実行してください:");
-        println!(
-            "  cargo install --force --git https://github.com/{}/{}",
-            REPO_OWNER, REPO_NAME
-        );
+    #[cfg(target_os = "windows")]
+    {
+        println!("アップデートをバッチファイルで開始します...");
+        spawn_updater_process()
+            .map_err(|e| anyhow::anyhow!("バッチファイルアップデーターの起動に失敗しました: {}", e))?;
         return Ok(());
     }
 
-    println!("アップデートを開始します...");
-    println!("cargo install --force --git https://github.com/{}/{}", REPO_OWNER, REPO_NAME);
+    #[cfg(not(target_os = "windows"))]
+    {
+        println!("アップデートを開始します...");
+        println!("cargo install --force --git https://github.com/{}/{}", REPO_OWNER, REPO_NAME);
 
-    let status = tokio::task::spawn_blocking(|| {
-        std::process::Command::new("cargo")
-            .args([
-                "install",
-                "--force",
-                "--git",
-                &format!("https://github.com/{}/{}", REPO_OWNER, REPO_NAME),
-            ])
-            .stdout(std::process::Stdio::inherit())
-            .stderr(std::process::Stdio::inherit())
-            .status()
-    })
-    .await??;
+        let status = tokio::task::spawn_blocking(|| {
+            std::process::Command::new("cargo")
+                .args([
+                    "install",
+                    "--force",
+                    "--git",
+                    &format!("https://github.com/{}/{}", REPO_OWNER, REPO_NAME),
+                ])
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit())
+                .status()
+        })
+        .await??;
 
-    if status.success() {
-        println!("アップデート成功！再起動します...");
-        if let Err(e) = std::process::Command::new("vpt").spawn() {
-            eprintln!("vptの再起動に失敗しました: {}", e);
+        if status.success() {
+            println!("アップデート成功！再起動します...");
+            if let Err(e) = std::process::Command::new("vpt").spawn() {
+                eprintln!("vptの再起動に失敗しました: {}", e);
+            }
+        } else {
+            eprintln!("アップデートに失敗しました。");
         }
-    } else {
-        eprintln!("アップデートに失敗しました。");
-    }
 
-    Ok(())
+        Ok(())
+    }
 }
