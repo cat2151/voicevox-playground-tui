@@ -71,8 +71,14 @@ pub async fn run(app: &mut App) -> Result<()> {
                             }
                             break;
                         }
-                        KeyCode::Char('j') | KeyCode::Down  => app.move_cursor(1).await,
-                        KeyCode::Char('k') | KeyCode::Up    => app.move_cursor(-1).await,
+                        KeyCode::Char('j') | KeyCode::Down  => {
+                            let count = app.take_count();
+                            app.move_cursor(count as i32).await;
+                        }
+                        KeyCode::Char('k') | KeyCode::Up    => {
+                            let count = app.take_count();
+                            app.move_cursor(-(count as i32)).await;
+                        }
                         KeyCode::Char('i') => app.enter_insert_current(),
                         KeyCode::Char('o') => app.enter_insert_below(),
                         KeyCode::Char('O') => app.enter_insert_above(),
@@ -130,6 +136,11 @@ pub async fn run(app: &mut App) -> Result<()> {
                             const ESC_HINT_DURATION_MS: u64 = 1500;
                             app.reset_pending_prefixes();
                             app.esc_hint_until = Some(Instant::now() + Duration::from_millis(ESC_HINT_DURATION_MS));
+                        }
+                        KeyCode::Char(c) if c.is_ascii_digit() => {
+                            if app.count_buf.len() < 6 {
+                                app.count_buf.push(c);
+                            }
                         }
                         _ => { app.reset_pending_prefixes(); }
                     }

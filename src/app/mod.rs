@@ -87,6 +87,8 @@ pub struct App {
     bg_prefetch_handle: Option<JoinHandle<()>>,
     /// NormalモードでESCを押した際に"q:quit"ヒントをハイライト表示する期限
     pub esc_hint_until: Option<Instant>,
+    /// Normalモードの数値プレフィックスバッファ（例: "10j" の "10" 部分）
+    pub count_buf: String,
     /// タブごとの (lines, line_intonations, cursor, folded) を保存するリスト（アクティブタブ含む全タブ）
     pub tabs:           Vec<(Vec<String>, Vec<Option<IntonationLineData>>, usize, bool)>,
     /// 現在アクティブなタブのインデックス（0始まり）
@@ -167,6 +169,7 @@ impl App {
             update_action: None,
             bg_prefetch_handle: None,
             esc_hint_until: None,
+            count_buf: String::new(),
             tabs,
             active_tab:    0,
             command_buf:   String::new(),
@@ -230,6 +233,7 @@ impl App {
         self.pending_g = false;
         self.pending_quote = false;
         self.pending_clipboard = false;
+        self.count_buf.clear();
     }
 
     // ── 内部ヘルパー ──────────────────────────────────────────────────────────
