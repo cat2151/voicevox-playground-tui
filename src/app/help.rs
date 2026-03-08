@@ -77,18 +77,25 @@ impl App {
     /// - 前方一致なし: バッファをクリアして `None` を返す。
     pub fn help_append_key(&mut self, s: &str) -> Option<HelpAction> {
         self.help_key_buf.push_str(s);
-        // 完全一致チェック
-        if let Some(action) = HELP_ENTRIES.iter()
-            .find(|e| !e.canonical_key.is_empty() && e.canonical_key == self.help_key_buf)
-            .map(|e| e.action.clone())
-        {
+        // 1パスで完全一致と前方一致を同時に判定する
+        let mut exact_action: Option<HelpAction> = None;
+        let mut has_prefix = false;
+        for e in HELP_ENTRIES {
+            if e.canonical_key.is_empty() { continue; }
+            if e.canonical_key == self.help_key_buf.as_str() {
+                exact_action = Some(e.action.clone());
+                break; // 完全一致が見つかったら前方一致の走査は不要
+            }
+            if e.canonical_key.starts_with(self.help_key_buf.as_str()) {
+                has_prefix = true;
+            }
+        }
+        if let Some(action) = exact_action {
             self.help_key_buf.clear();
             self.mode = Mode::Normal;
             return Some(action);
         }
         // 前方一致がなければバッファをリセット
-        let has_prefix = HELP_ENTRIES.iter()
-            .any(|e| !e.canonical_key.is_empty() && e.canonical_key.starts_with(self.help_key_buf.as_str()));
         if !has_prefix {
             self.help_key_buf.clear();
         }
@@ -127,20 +134,23 @@ mod tests {
     /// help_append_key と同じロジックを独立して検証する。
     fn append_key(buf: &mut String, s: &str) -> Option<HelpAction> {
         buf.push_str(s);
-        // 完全一致チェック
-        if let Some(action) = HELP_ENTRIES.iter()
-            .find(|e| !e.canonical_key.is_empty() && e.canonical_key == buf.as_str())
-            .map(|e| e.action.clone())
-        {
+        let mut exact_action: Option<HelpAction> = None;
+        let mut has_prefix = false;
+        for e in HELP_ENTRIES {
+            if e.canonical_key.is_empty() { continue; }
+            if e.canonical_key == buf.as_str() {
+                exact_action = Some(e.action.clone());
+                break;
+            }
+            if e.canonical_key.starts_with(buf.as_str()) {
+                has_prefix = true;
+            }
+        }
+        if let Some(action) = exact_action {
             buf.clear();
             return Some(action);
         }
-        // 前方一致がなければバッファをリセット
-        let has_prefix = HELP_ENTRIES.iter()
-            .any(|e| !e.canonical_key.is_empty() && e.canonical_key.starts_with(buf.as_str()));
-        if !has_prefix {
-            buf.clear();
-        }
+        if !has_prefix { buf.clear(); }
         None
     }
 

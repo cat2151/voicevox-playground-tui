@@ -308,8 +308,13 @@ pub async fn run(app: &mut App) -> Result<()> {
                             app.mode = Mode::Normal;
                         }
                         // Space・Enter・その他の文字キー: バッファに追記してハイライト更新・完全一致時に実行
-                        KeyCode::Char(' ') | KeyCode::Enter => {
-                            if let Some(action) = app.help_append_key(" ") {
+                        _ => {
+                            let maybe_action = match key.code {
+                                KeyCode::Char(' ') | KeyCode::Enter => app.help_append_key(" "),
+                                KeyCode::Char(c)                    => app.help_append_key(&c.to_string()),
+                                _                                   => None,
+                            };
+                            if let Some(action) = maybe_action {
                                 match action {
                                     HelpAction::MoveDown            => app.move_cursor(1).await,
                                     HelpAction::MoveUp              => app.move_cursor(-1).await,
@@ -338,38 +343,6 @@ pub async fn run(app: &mut App) -> Result<()> {
                                 }
                             }
                         }
-                        KeyCode::Char(c) => {
-                            let s = c.to_string();
-                            if let Some(action) = app.help_append_key(&s) {
-                                match action {
-                                    HelpAction::MoveDown            => app.move_cursor(1).await,
-                                    HelpAction::MoveUp              => app.move_cursor(-1).await,
-                                    HelpAction::EditCurrent         => app.enter_insert_current(),
-                                    HelpAction::InsertBelow         => app.enter_insert_below(),
-                                    HelpAction::InsertAbove         => app.enter_insert_above(),
-                                    HelpAction::PlayCurrent         => app.play_current().await,
-                                    HelpAction::DeleteLine          => app.delete_current_line().await,
-                                    HelpAction::PasteBelow          => app.paste_below().await,
-                                    HelpAction::PasteAbove          => app.paste_above().await,
-                                    HelpAction::PasteBelowClipboard => app.paste_below_from_clipboard().await,
-                                    HelpAction::PasteAboveClipboard => app.paste_above_from_clipboard().await,
-                                    HelpAction::Fold                => app.fold(),
-                                    HelpAction::Unfold              => app.unfold(),
-                                    HelpAction::IntonationMode      => app.enter_intonation_mode().await,
-                                    HelpAction::TabNext             => app.tab_next(),
-                                    HelpAction::TabPrev             => app.tab_prev(),
-                                    HelpAction::TabNew              => app.tabnew(),
-                                    HelpAction::Quit                => {
-                                        if app.update_available.load(Ordering::Relaxed) {
-                                            app.update_action = Some(UpdateAction::Foreground);
-                                        }
-                                        break;
-                                    }
-                                    HelpAction::None                => {}
-                                }
-                            }
-                        }
-                        _ => {}
                     }
                 }
             }
