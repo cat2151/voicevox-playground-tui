@@ -3,6 +3,21 @@
 use super::App;
 
 impl App {
+    /// 全タブのlines（終了時保存用）を返す。
+    /// アクティブタブのlinesはself.linesから、他のタブはtabsスロットから取得する。
+    /// self.tabsは全タブ（アクティブ含む）1エントリを持つため、self.tabs.len()が正しいサイズとなる。
+    pub fn all_tab_lines(&self) -> Vec<Vec<String>> {
+        let mut result = vec![Vec::new(); self.tabs.len()];
+        for (i, (tab_lines, _, _, _)) in self.tabs.iter().enumerate() {
+            if i == self.active_tab {
+                result[i] = self.lines.clone();
+            } else {
+                result[i] = tab_lines.clone();
+            }
+        }
+        result
+    }
+
     /// アクティブタブの現在状態をtabsスロットにswapで書き込む内部ヘルパー。
     /// クローンを避けるため、self.linesとtabs[active_tab].0、self.line_intonationsとtabs[active_tab].1を入れ替える。
     /// 呼び出し後、tabs[active_tab].0/1には正しいlines/line_intonationsが、self.lines/self.line_intonationsには古いスロット値が入る。

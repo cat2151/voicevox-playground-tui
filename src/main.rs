@@ -36,8 +36,8 @@ async fn main() -> Result<()> {
         return clipboard::run().await;
     }
 
-    let lines   = history::load()?;
-    let mut app = App::new(lines);
+    let all_lines = history::load_all()?;
+    let mut app = App::new_with_tabs(all_lines);
 
     // バックグラウンドで自動アップデートチェックを開始する
     updater::spawn_update_check(std::sync::Arc::clone(&app.update_available));
@@ -45,7 +45,7 @@ async fn main() -> Result<()> {
     app.init().await;
     tui::run(&mut app).await?;
 
-    history::append_new(&app.lines)?;
+    history::save_all(&app.all_tab_lines())?;
 
     // ユーザーが選択したアップデート実行方法に応じて処理する
     match app.update_action {
