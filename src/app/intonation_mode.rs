@@ -14,7 +14,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::{tag, voicevox};
+use crate::{tag, ui, voicevox};
 
 use super::{App, IntonationLineData, Mode};
 
@@ -160,7 +160,7 @@ impl App {
 
         // クリック行からpitch値を計算する（上端行 = pitch_top、以下0.1ずつ減少）
         let rel_row = row - gy;
-        let new_pitch = pitch_top - rel_row as f64 * 0.1;
+        let new_pitch = pitch_top - rel_row as f64 * ui::PITCH_PER_ROW;
         let new_pitch = new_pitch.clamp(0.0, 20.0);
         let new_pitch = (new_pitch * 10.0).round() / 10.0;
 
