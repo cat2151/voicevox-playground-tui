@@ -20,6 +20,11 @@ const ORANGE:       Color = Color::Rgb(253, 151, 31);
 const CURSOR_NORMAL:Color = Color::Rgb(73, 72, 62);
 const CURSOR_INSERT:Color = Color::Rgb(102, 217, 232);
 
+/// イントネーション編集の列カラー（隣接列を異なる色にする）
+fn column_color(i: usize) -> Color {
+    if i % 2 == 0 { GREEN } else { YELLOW }
+}
+
 pub fn draw(f: &mut Frame, app: &mut App) {
     f.render_widget(Block::default().style(Style::default().bg(BG)), f.area());
 
@@ -345,10 +350,11 @@ fn render_intonation_editor(f: &mut Frame, app: &mut App, area: Rect) {
     // 3行目: モーラ一覧（各列を4ターミナル列幅に統一）
     let mora_spans: Vec<Span> = app.intonation_mora_texts.iter().enumerate()
         .flat_map(|(i, text)| {
+            let col = column_color(i);
             let style = if i == app.intonation_cursor {
-                Style::default().fg(BG).bg(CYAN).bold()
+                Style::default().fg(BG).bg(col).bold()
             } else {
-                Style::default().fg(FG)
+                Style::default().fg(col)
             };
             let text_w = UnicodeWidthStr::width(text.as_str());
             let padding = " ".repeat(4usize.saturating_sub(text_w));
@@ -364,10 +370,11 @@ fn render_intonation_editor(f: &mut Frame, app: &mut App, area: Rect) {
     // 4行目: pitch一覧（各列を4ターミナル列幅に統一）
     let pitch_spans: Vec<Span> = app.intonation_pitches.iter().enumerate()
         .flat_map(|(i, &pitch)| {
+            let col = column_color(i);
             let style = if i == app.intonation_cursor {
-                Style::default().fg(BG).bg(YELLOW).bold()
+                Style::default().fg(BG).bg(col).bold()
             } else {
-                Style::default().fg(GREEN)
+                Style::default().fg(col)
             };
             let s = format!("{:.1}", pitch);
             let label = format!("{:<4}", s);
@@ -453,16 +460,17 @@ fn render_intonation_graph(f: &mut Frame, app: &mut App, area: Rect) {
             let is_out  = p_unit > pitch_top_unit || p_unit < pitch_bottom_unit;
             let is_here = mora_row == r as i64;
             let is_sel  = i == intonation_cursor;
+            let col     = column_color(i);
 
             let (marker, style) = if is_out {
                 // 範囲外モーラ: グレーアウト（現在行にかかわらず薄い点を表示）
                 (format!("{:<width$}", ".", width = w), Style::default().fg(DIM))
             } else if is_here && is_sel {
                 // 選択中モーラのマーカー
-                (format!("{:<width$}", "*", width = w), Style::default().fg(BG).bg(CYAN).bold())
+                (format!("{:<width$}", "*", width = w), Style::default().fg(BG).bg(col).bold())
             } else if is_here {
                 // 非選択モーラのマーカー
-                (format!("{:<width$}", "*", width = w), Style::default().fg(GREEN))
+                (format!("{:<width$}", "*", width = w), Style::default().fg(col))
             } else {
                 // 空白
                 (" ".repeat(w), Style::default())
@@ -471,7 +479,7 @@ fn render_intonation_graph(f: &mut Frame, app: &mut App, area: Rect) {
             // ピッチ行よりも下（マーカー未到達）に縦線（茎）を描画
             let (marker, style) = if !is_out && !is_here && mora_row >= 0 && r as i64 > mora_row {
                 if is_sel {
-                    (format!("{:<width$}", "|", width = w), Style::default().fg(CYAN))
+                    (format!("{:<width$}", "|", width = w), Style::default().fg(col))
                 } else {
                     (format!("{:<width$}", "|", width = w), Style::default().fg(DIM))
                 }
