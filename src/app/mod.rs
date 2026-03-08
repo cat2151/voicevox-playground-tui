@@ -29,10 +29,6 @@ pub enum Mode {
     Intonation,
     /// コロンコマンド入力モード（例: :tabnew）
     Command,
-    /// 自動検出されたアップデートの選択ダイアログ
-    UpdateAvailableDialog,
-    /// qキー押下時に表示するアップデート選択ダイアログ
-    QuitWithUpdateDialog,
 }
 
 /// 行ごとのイントネーション編集データ（行テキストをキーに保持する）。
@@ -82,8 +78,6 @@ pub struct App {
     pub is_fetching:   IsFetching,
     /// アップデートが利用可能かどうか（バックグラウンドチェックがセットする）
     pub update_available: Arc<AtomicBool>,
-    /// アップデートダイアログを一時的に却下したかどうか
-    pub update_dismissed: bool,
     /// ユーザーが選択したアップデート実行方法
     pub update_action: Option<UpdateAction>,
     /// バックグラウンドprefetchタスクのハンドル（カーソル移動時にキャンセル）
@@ -150,7 +144,6 @@ impl App {
             folded:        false,
             is_fetching,
             update_available: Arc::new(AtomicBool::new(false)),
-            update_dismissed: false,
             update_action: None,
             bg_prefetch_handle: None,
             esc_hint_until: None,
