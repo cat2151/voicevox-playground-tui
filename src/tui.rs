@@ -14,7 +14,7 @@ use crossterm::{
 use ratatui::{backend::CrosstermBackend, Terminal};
 use tui_textarea::{Input, Key};
 
-use crate::app::{App, Mode, UpdateAction};
+use crate::app::{App, HelpAction, Mode, UpdateAction};
 use crate::ui;
 
 pub async fn run(app: &mut App) -> Result<()> {
@@ -118,6 +118,8 @@ pub async fn run(app: &mut App) -> Result<()> {
                             app.tab_prev();
                         }
                         KeyCode::Char('v') => app.enter_intonation_mode().await,
+                        KeyCode::Char('h') => app.enter_help_mode(),
+                        KeyCode::Char('l') => app.tab_next(),
                         KeyCode::Char(':') => {
                             app.reset_pending_prefixes();
                             app.command_buf = String::new();
@@ -235,6 +237,44 @@ pub async fn run(app: &mut App) -> Result<()> {
                         (KeyCode::Char(c), KeyModifiers::NONE)
                         | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
                             app.command_buf.push(c);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Mode::Help => {
+                if let Event::Key(key) = ev {
+                    match key.code {
+                        KeyCode::Esc => {
+                            app.mode = Mode::Normal;
+                        }
+                        KeyCode::Char('j') | KeyCode::Down  => app.help_move_row(1),
+                        KeyCode::Char('k') | KeyCode::Up    => app.help_move_row(-1),
+                        KeyCode::Char('h') | KeyCode::Left  => app.help_move_col(-1),
+                        KeyCode::Char('l') | KeyCode::Right => app.help_move_col(1),
+                        KeyCode::Enter | KeyCode::Char(' ') => {
+                            let action = app.help_select();
+                            match action {
+                                HelpAction::MoveDown            => app.move_cursor(1).await,
+                                HelpAction::MoveUp              => app.move_cursor(-1).await,
+                                HelpAction::EditCurrent         => app.enter_insert_current(),
+                                HelpAction::InsertBelow         => app.enter_insert_below(),
+                                HelpAction::InsertAbove         => app.enter_insert_above(),
+                                HelpAction::PlayCurrent         => app.play_current().await,
+                                HelpAction::DeleteLine          => app.delete_current_line().await,
+                                HelpAction::PasteBelow          => app.paste_below().await,
+                                HelpAction::PasteAbove          => app.paste_above().await,
+                                HelpAction::PasteBelowClipboard => app.paste_below_from_clipboard().await,
+                                HelpAction::PasteAboveClipboard => app.paste_above_from_clipboard().await,
+                                HelpAction::Fold                => app.fold(),
+                                HelpAction::Unfold              => app.unfold(),
+                                HelpAction::IntonationMode      => app.enter_intonation_mode().await,
+                                HelpAction::TabNext             => app.tab_next(),
+                                HelpAction::TabPrev             => app.tab_prev(),
+                                HelpAction::TabNew              => app.tabnew(),
+                                HelpAction::Quit                => break,
+                                HelpAction::None                => {}
+                            }
                         }
                         _ => {}
                     }
