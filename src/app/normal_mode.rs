@@ -3,6 +3,13 @@
 use super::App;
 
 impl App {
+    /// count_bufを消費して繰り返し回数を返す。バッファが空または0のときは1を返す。
+    pub fn take_count(&mut self) -> u32 {
+        let n = self.count_buf.parse::<u32>().unwrap_or(1).max(1);
+        self.count_buf.clear();
+        n
+    }
+
     pub async fn move_cursor(&mut self, delta: i32) {
         self.reset_pending_prefixes();
         if self.lines.is_empty() { return; }
@@ -145,5 +152,43 @@ impl App {
             }
         };
         Ok(text.lines().map(|l| l.to_string()).collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_app() -> App {
+        App::new(vec!["a".to_string(), "b".to_string(), "c".to_string()])
+    }
+
+    #[tokio::test]
+    async fn take_count_empty_buf_returns_one() {
+        let mut app = make_app();
+        assert_eq!(app.take_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn take_count_single_digit_returns_it() {
+        let mut app = make_app();
+        app.count_buf = "5".to_string();
+        assert_eq!(app.take_count(), 5);
+        assert!(app.count_buf.is_empty());
+    }
+
+    #[tokio::test]
+    async fn take_count_multi_digit_returns_parsed_value() {
+        let mut app = make_app();
+        app.count_buf = "10".to_string();
+        assert_eq!(app.take_count(), 10);
+        assert!(app.count_buf.is_empty());
+    }
+
+    #[tokio::test]
+    async fn take_count_zero_returns_one() {
+        let mut app = make_app();
+        app.count_buf = "0".to_string();
+        assert_eq!(app.take_count(), 1);
     }
 }
