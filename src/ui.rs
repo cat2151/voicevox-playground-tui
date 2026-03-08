@@ -479,7 +479,7 @@ fn render_intonation_graph(f: &mut Frame, app: &mut App, area: Rect) {
             // ピッチ行よりも下（マーカー未到達）に縦線（茎）を描画
             let (marker, style) = if !is_out && !is_here && mora_row >= 0 && r as i64 > mora_row {
                 if is_sel {
-                    (format!("{:<width$}", "|", width = w), Style::default().fg(col))
+                    (format!("{:<width$}", "|", width = w), Style::default().fg(BG).bg(col).bold())
                 } else {
                     (format!("{:<width$}", "|", width = w), Style::default().fg(DIM))
                 }
