@@ -304,6 +304,11 @@ fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
 
 // ── イントネーション編集モード ──────────────────────────────────────────────────
 
+/// 1行あたりのpitch変化量（0.1 pitch = 1行）
+pub(crate) const PITCH_PER_ROW: f64 = 0.1;
+/// グラフ上端から一番高いpitchバーまでの空白行数
+const TOP_MARGIN_ROWS: u16 = 5;
+
 /// イントネーション編集モードのメイン画面を描画する。
 /// レイアウト（ブロック内）:
 ///   1行目: モードラベル
@@ -311,7 +316,7 @@ fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
 ///   3行目: モーラ一覧（space区切り、選択モーラをハイライト）
 ///   4行目: pitch一覧（小数1桁、選択モーラをハイライト）
 ///   5行目: 数値直接入力バッファ（常に確保、空のときは空白）
-///   残り:  擬似折れ線グラフ（0.1 = 1行、中央揃え表示、範囲外はグレーアウト）
+///   残り:  擬似折れ線グラフ（0.1 = 1行、上端は最高pitchからTOP_MARGIN_ROWS行上、範囲外はグレーアウト）
 fn render_intonation_editor(f: &mut Frame, app: &mut App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
@@ -400,8 +405,8 @@ fn render_intonation_editor(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 /// イントネーション擬似折れ線グラフを描画する。
-/// - 0.1 pitch = 1行
-/// - 表示範囲はpitch値の中央揃え（画面行数で決まる）
+/// - PITCH_PER_ROW pitch = 1行
+/// - 上端は最高pitchからTOP_MARGIN_ROWS行上（画面が狭い場合はgraph_h-1行上に縮小）
 /// - 範囲外のモーラはグレーアウト表示
 /// - グラフ情報をAppに保存してマウスイベント処理で使用する
 fn render_intonation_graph(f: &mut Frame, app: &mut App, area: Rect) {
@@ -414,14 +419,14 @@ fn render_intonation_graph(f: &mut Frame, app: &mut App, area: Rect) {
     let n = app.intonation_pitches.len();
     let intonation_cursor = app.intonation_cursor;
 
-    // pitch範囲の計算（min/maxを中央に表示）
-    let min_p = app.intonation_pitches.iter().copied().fold(f64::INFINITY, f64::min);
+    // pitch範囲の計算（一番高いpitchからTOP_MARGIN_ROWS行上を上端とする）
+    // 画面が狭い場合（graph_h <= TOP_MARGIN_ROWS）はmarginをgraph_h-1に縮小して
+    // 最高pitchが必ず表示範囲内に入るよう保証する
     let max_p = app.intonation_pitches.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-    let (min_p, max_p) = if min_p > max_p { (0.0, 0.0) } else { (min_p, max_p) };
-    let center = (min_p + max_p) / 2.0;
-    let half_h = (graph_h as f64 - 1.0) / 2.0;
-    let pitch_bottom = (center - half_h * 0.1).max(0.0);
-    let pitch_top    = center + half_h * 0.1;
+    let max_p = if !max_p.is_finite() { 0.0 } else { max_p };
+    let margin = TOP_MARGIN_ROWS.min(graph_h.saturating_sub(1));
+    let pitch_top    = max_p + margin as f64 * PITCH_PER_ROW;
+    let pitch_bottom = (pitch_top - (graph_h as f64 - 1.0) * PITCH_PER_ROW).max(0.0);
 
     // モーラ列の幅と開始x座標を計算（全列を4ターミナル列幅に統一）
     let mut col_x: Vec<u16> = Vec::with_capacity(n);
