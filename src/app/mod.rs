@@ -1,15 +1,18 @@
 //! アプリケーション状態と状態遷移ロジック。
 
 mod insert_mode;
+mod intonation_mode;
 mod normal_mode;
 mod tab_ops;
 mod utils;
 
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use lru::LruCache;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tui_textarea::TextArea;
@@ -22,12 +25,27 @@ use crate::player;
 pub enum Mode {
     Normal,
     Insert,
+    /// キーボードによる簡易イントネーション編集モード
+    Intonation,
     /// コロンコマンド入力モード（例: :tabnew）
     Command,
     /// 自動検出されたアップデートの選択ダイアログ
     UpdateAvailableDialog,
     /// qキー押下時に表示するアップデート選択ダイアログ
     QuitWithUpdateDialog,
+}
+
+/// 行ごとのイントネーション編集データ（行テキストをキーに保持する）。
+#[derive(Clone)]
+pub struct IntonationLineData {
+    /// 合成に使うaudio_query JSON（pitch値が編集済み）
+    pub query:      serde_json::Value,
+    /// モーラ表示テキスト一覧
+    pub mora_texts: Vec<String>,
+    /// 現在のpitch値一覧
+    pub pitches:    Vec<f64>,
+    /// 合成に使うspeaker_id
+    pub speaker_id: u32,
 }
 
 /// アップデート実行方法の選択結果
@@ -78,6 +96,25 @@ pub struct App {
     pub active_tab:     usize,
     /// コマンドモード（":tabnew" など）の入力バッファ
     pub command_buf:    String,
+    // ── イントネーション編集 ──────────────────────────────────────────────────────
+    /// 行テキスト → イントネーション編集データ（LRUキャッシュ、最大50件）
+    pub intonation_cache:      LruCache<String, IntonationLineData>,
+    /// イントネーション編集セッション中のspeaker_id
+    pub intonation_speaker_id: u32,
+    /// イントネーション編集セッション中のモーラ表示テキスト一覧
+    pub intonation_mora_texts: Vec<String>,
+    /// イントネーション編集セッション中のpitch値一覧（編集可能）
+    pub intonation_pitches:    Vec<f64>,
+    /// イントネーション編集セッション中のaudio_query JSON（pitch値適用済み）
+    pub intonation_query:      serde_json::Value,
+    /// 現在選択中のモーラインデックス（a-z/A-Zキーで更新）
+    pub intonation_cursor:     usize,
+    /// 数値直接入力バッファ（非空のとき数値入力サブモード）
+    pub intonation_num_buf:    String,
+    /// a-zA-Zキーによる再生デバウンス期限（1秒）
+    pub intonation_debounce:   Option<Instant>,
+    /// イントネーション合成再生タスクのハンドル（新規再生時にabortして上書き）
+    pub intonation_play_handle: Option<JoinHandle<()>>,
 }
 
 impl App {
@@ -120,6 +157,15 @@ impl App {
             tabs,
             active_tab:    0,
             command_buf:   String::new(),
+            intonation_cache:      LruCache::new(NonZeroUsize::new(50).unwrap()),
+            intonation_speaker_id: 0,
+            intonation_mora_texts: Vec::new(),
+            intonation_pitches:    Vec::new(),
+            intonation_query:      serde_json::Value::Null,
+            intonation_cursor:     0,
+            intonation_num_buf:    String::new(),
+            intonation_debounce:   None,
+            intonation_play_handle: None,
         }
     }
 
@@ -171,7 +217,15 @@ impl App {
 
     async fn fetch_and_play(&mut self, index: usize) {
         if index >= self.lines.len() || self.lines[index].trim().is_empty() { return; }
-        let text   = self.lines[index].clone();
+        let text = self.lines[index].clone();
+
+        // イントネーション編集済みの場合は直接合成して再生する（通常キャッシュは使わない）
+        if let Some(data) = self.intonation_cache.get(&text).cloned() {
+            self.spawn_intonation_play(data.query, data.speaker_id);
+            self.status_msg = format!("[♬ intonation] line {}", index + 1);
+            return;
+        }
+
         let cached = { self.cache.lock().unwrap().get(&text).cloned() };
         if let Some(wav) = cached {
             let _ = self.play_tx.send(wav).await;
@@ -180,6 +234,20 @@ impl App {
             let _ = self.fetch_tx.send(FetchRequest { text, play_after: true }).await;
             self.status_msg = format!("[fetching...] line {}", index + 1);
         }
+    }
+
+    /// イントネーションqueryを使って合成・再生するタスクを起動する。
+    /// 前回のタスクがあればabortしてから新しいタスクを起動する（並列実行を防ぐ）。
+    pub(super) fn spawn_intonation_play(&mut self, query: serde_json::Value, speaker_id: u32) {
+        if let Some(h) = self.intonation_play_handle.take() {
+            h.abort();
+        }
+        let play_tx = self.play_tx.clone();
+        self.intonation_play_handle = Some(tokio::spawn(async move {
+            if let Ok(wav) = crate::voicevox::synthesize_with_query(&query, speaker_id).await {
+                let _ = play_tx.send(wav).await;
+            }
+        }));
     }
 
     /// 現在行のfetch完了後、表示範囲内のcacheのない行を裏で1行ずつfetchする。
