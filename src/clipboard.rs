@@ -20,8 +20,9 @@ pub async fn run() -> Result<()> {
         }
         match voicevox::synthesize_line(line).await {
             Ok(wav) if !wav.is_empty() => {
-                if let Ok(source) = Decoder::new(Cursor::new(wav)) {
-                    sink.append(source);
+                match Decoder::new(Cursor::new(wav)) {
+                    Ok(source) => sink.append(source),
+                    Err(e) => eprintln!("[clipboard] decode error: {e}"),
                 }
             }
             Ok(_) => {}
