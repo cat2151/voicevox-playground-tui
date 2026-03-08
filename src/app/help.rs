@@ -36,26 +36,26 @@ pub struct HelpEntry {
 /// NORMALモードのkeybind一覧（helpメニュー表示・実行用）。
 /// `action` を各エントリに直接持たせることで、並び替え・追加・削除しても
 /// 表示内容と実行アクションがズレない。
+/// 偶数インデックス＝左列（ナビゲーション／再生／モード系）、奇数インデックス＝右列（編集：挿入／削除／貼り付け等）。
 pub const HELP_ENTRIES: &[HelpEntry] = &[
     HelpEntry { key: "j / ↓",      desc: "カーソル下移動",               action: HelpAction::MoveDown },
-    HelpEntry { key: "k / ↑",      desc: "カーソル上移動",               action: HelpAction::MoveUp },
     HelpEntry { key: "i",           desc: "現在行を編集（挿入モード）",   action: HelpAction::EditCurrent },
-    HelpEntry { key: "o",           desc: "下に新行を挿入して編集",       action: HelpAction::InsertBelow },
+    HelpEntry { key: "k / ↑",      desc: "カーソル上移動",               action: HelpAction::MoveUp },
     HelpEntry { key: "O",           desc: "上に新行を挿入して編集",       action: HelpAction::InsertAbove },
-    HelpEntry { key: "Space/Enter", desc: "現在行を再生",                 action: HelpAction::PlayCurrent },
-    HelpEntry { key: "dd",          desc: "現在行を削除",                 action: HelpAction::DeleteLine },
-    HelpEntry { key: "p",           desc: "ヤンクバッファを下にペースト", action: HelpAction::PasteBelow },
-    HelpEntry { key: "P",           desc: "ヤンクバッファを上にペースト", action: HelpAction::PasteAbove },
-    HelpEntry { key: "\"+p",        desc: "クリップボードを下にペースト", action: HelpAction::PasteBelowClipboard },
-    HelpEntry { key: "\"+P",        desc: "クリップボードを上にペースト", action: HelpAction::PasteAboveClipboard },
     HelpEntry { key: "zm",          desc: "折りたたむ（行頭space行を非表示）", action: HelpAction::Fold },
+    HelpEntry { key: "o",           desc: "下に新行を挿入して編集",       action: HelpAction::InsertBelow },
     HelpEntry { key: "zr",          desc: "折りたたみを解除",             action: HelpAction::Unfold },
-    HelpEntry { key: "v",           desc: "イントネーション編集モードへ", action: HelpAction::IntonationMode },
+    HelpEntry { key: "dd",          desc: "現在行を削除",                 action: HelpAction::DeleteLine },
     HelpEntry { key: "l / gt",      desc: "次のタブへ移動",               action: HelpAction::TabNext },
+    HelpEntry { key: "P",           desc: "ヤンクバッファを上にペースト", action: HelpAction::PasteAbove },
     HelpEntry { key: "gT",          desc: "前のタブへ移動",               action: HelpAction::TabPrev },
+    HelpEntry { key: "p",           desc: "ヤンクバッファを下にペースト", action: HelpAction::PasteBelow },
+    HelpEntry { key: "Space/Enter", desc: "現在行を再生",                 action: HelpAction::PlayCurrent },
     HelpEntry { key: ":tabnew",     desc: "新しいタブを作成",             action: HelpAction::TabNew },
-    HelpEntry { key: "h",           desc: "このヘルプを表示",             action: HelpAction::None },
+    HelpEntry { key: "v",           desc: "イントネーション編集モードへ", action: HelpAction::IntonationMode },
+    HelpEntry { key: "\"+P",        desc: "クリップボードを上にペースト", action: HelpAction::PasteAboveClipboard },
     HelpEntry { key: "q",           desc: "終了",                         action: HelpAction::Quit },
+    HelpEntry { key: "\"+p",        desc: "クリップボードを下にペースト", action: HelpAction::PasteBelowClipboard },
 ];
 
 impl App {
@@ -167,18 +167,14 @@ mod tests {
     }
 
     #[test]
-    fn move_row_right_col_falls_back_to_left_when_no_right() {
-        // n=19(奇数)なので最終行(9行目)には右列エントリが存在しない
-        // 8行目右列(cursor=17) → 下 → 9行目左列(cursor=18)へフォールバック
-        let n = HELP_ENTRIES.len(); // 19
-        assert!(n % 2 == 1, "このテストはHELP_ENTRIESが奇数個のときのみ有効");
-        let second_to_last_right = (n / 2 - 1) * 2 + 1; // (9-1)*2+1 = 15... recalc
-        // 最終行の1行前の右列からjで移動 → 右列が存在しないため左列へフォールバック
-        let penultimate_row = (n - 1) / 2 - 1;
-        let penultimate_right = penultimate_row * 2 + 1;
-        let last_left = ((n - 1) / 2) * 2;
-        assert_eq!(move_row(penultimate_right, 1), last_left,
-            "右列が存在しない最終行では左列にフォールバックされること");
+    fn move_row_right_col_clamps_at_last_row() {
+        // n=18(偶数)なので全行に右列エントリが存在する。
+        // 最終行右列から下に移動しても最終行右列のまま（クランプ）であることを確認する。
+        let n = HELP_ENTRIES.len(); // 18
+        assert!(n % 2 == 0, "このテストはHELP_ENTRIESが偶数個のときのみ有効");
+        let last_right = n - 1; // cursor=17 (右列)
+        assert_eq!(move_row(last_right, 1), last_right,
+            "最終行右列から下移動しても最終行右列のまま（クランプ）であること");
     }
 
     // ── help_move_col ────────────────────────────────────────────────────────────
@@ -208,14 +204,22 @@ mod tests {
     }
 
     #[test]
-    fn move_col_right_no_entry_when_odd_total() {
-        // n=19(奇数)なので最終行には右列エントリが存在しない。
-        // 最終行左列から右に移動しても変化なし。
-        let n = HELP_ENTRIES.len(); // 19
-        assert!(n % 2 == 1);
-        let last_left = n - 1; // cursor=18
-        assert_eq!(move_col(last_left, 1), last_left,
-            "右列エントリが存在しない場合、左列から右移動しても変化しないこと");
+    fn move_col_right_last_left_reaches_last_right_when_even_total() {
+        // n=18(偶数)なので全行に右列エントリが存在する。
+        // 最終行左列から右に移動すると右列へ移動できることを確認する。
+        let n = HELP_ENTRIES.len(); // 18
+        assert!(n % 2 == 0);
+        let last_left = n - 2;  // cursor=16 (最終行左列)
+        let last_right = n - 1; // cursor=17 (最終行右列)
+        assert_eq!(move_col(last_left, 1), last_right,
+            "偶数エントリ数では最終行左列から右移動で右列へ移動できること");
+    }
+
+    #[test]
+    fn help_entries_count_is_even() {
+        // 左右列が必ず対になるよう、エントリ数は偶数でなければならない
+        assert_eq!(HELP_ENTRIES.len() % 2, 0,
+            "HELP_ENTRIESは偶数個でなければならない（左右列の対称性を保つため）");
     }
 
     // ── help_select ──────────────────────────────────────────────────────────────
@@ -248,7 +252,7 @@ mod tests {
     }
 
     #[test]
-    fn help_entries_last_is_quit() {
-        assert_eq!(HELP_ENTRIES.last().unwrap().action, HelpAction::Quit);
+    fn help_entries_last_is_paste_below_clipboard() {
+        assert_eq!(HELP_ENTRIES.last().unwrap().action, HelpAction::PasteBelowClipboard);
     }
 }
