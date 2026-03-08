@@ -272,7 +272,12 @@ pub async fn run(app: &mut App) -> Result<()> {
                                 HelpAction::TabNext             => app.tab_next(),
                                 HelpAction::TabPrev             => app.tab_prev(),
                                 HelpAction::TabNew              => app.tabnew(),
-                                HelpAction::Quit                => break,
+                                HelpAction::Quit                => {
+                                    if app.update_available.load(Ordering::Relaxed) {
+                                        app.update_action = Some(UpdateAction::Foreground);
+                                    }
+                                    break;
+                                }
                                 HelpAction::None                => {}
                             }
                         }

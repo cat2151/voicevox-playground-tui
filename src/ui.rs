@@ -597,11 +597,14 @@ fn render_help_overlay(f: &mut Frame, app: &App) {
             Style::default().fg(FG)
         };
 
-        let key_w = 13usize; // キー列の幅（固定）
+        let key_w = 13usize; // キー列の表示幅（固定）
         let desc_w = (col_width as usize).saturating_sub(key_w + 1);
 
-        let left_key  = format!("{:<width$}", left_entry.key,  width = key_w);
-        let left_desc = format!("{:<width$}", left_entry.desc, width = desc_w);
+        // UnicodeWidthStr で実際の表示幅を計算してスペースパディングを追加する
+        let left_key_display_w  = UnicodeWidthStr::width(left_entry.key);
+        let left_desc_display_w = UnicodeWidthStr::width(left_entry.desc);
+        let left_key  = format!("{}{}", left_entry.key,  " ".repeat(key_w.saturating_sub(left_key_display_w)));
+        let left_desc = format!("{}{}", left_entry.desc, " ".repeat(desc_w.saturating_sub(left_desc_display_w)));
 
         let mut spans = vec![
             Span::styled(left_key,  left_key_style),
@@ -623,8 +626,8 @@ fn render_help_overlay(f: &mut Frame, app: &App) {
                 Style::default().fg(FG)
             };
 
-            let right_key  = format!("{:<width$}", right_entry.key,  width = key_w);
-            let right_desc = format!("{:<width$}", right_entry.desc, width = desc_w);
+            let right_key  = format!("{}{}", right_entry.key,  " ".repeat(key_w.saturating_sub(UnicodeWidthStr::width(right_entry.key))));
+            let right_desc = format!("{}{}", right_entry.desc, " ".repeat(desc_w.saturating_sub(UnicodeWidthStr::width(right_entry.desc))));
 
             spans.push(Span::styled(right_key,  right_key_style));
             spans.push(Span::styled(" ", Style::default().bg(BG)));
