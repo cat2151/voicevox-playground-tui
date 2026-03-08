@@ -238,7 +238,7 @@ pub async fn run(app: &mut App) -> Result<()> {
                         KeyCode::Char('j') | KeyCode::Down if !num_active => {
                             app.intonation_adjust_current_pitch(-0.1);
                         }
-                        // a-z: 対応モーラのpitchを+0.1（数値入力中は無効）
+                        // a-z（h/j/k/l を除く）: 対応モーラのpitchを+0.1（数値入力中は無効）
                         KeyCode::Char(c) if c.is_ascii_lowercase() && !num_active => {
                             let mora_idx = (c as usize) - ('a' as usize);
                             app.intonation_adjust_pitch(mora_idx, 0.1);
