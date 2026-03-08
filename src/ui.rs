@@ -506,7 +506,7 @@ fn render_intonation_graph(f: &mut Frame, app: &mut App, area: Rect) {
 
 /// イントネーション編集モードのステータスバーを描画する。
 fn render_intonation_status(f: &mut Frame, app: &App, area: Rect) {
-    let hint = "a-z:mora pitch+0.1  A-Z:pitch-0.1  0-9:直接入力  マウスクリック:pitch設定  Esc/Enter:確定してNormalへ";
+    let hint = "h/l:モーラ選択  k:pitch+0.1 j:pitch-0.1  a-z:+0.1  A-Z:-0.1  0-9:直接入力  マウスクリック:pitch設定  Esc/Enter:確定してNormalへ";
     let hint_width = UnicodeWidthStr::width(hint) as u16 + 1;
     let cols = Layout::horizontal([
         Constraint::Min(0),

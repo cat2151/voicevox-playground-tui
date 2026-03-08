@@ -222,6 +222,22 @@ pub async fn run(app: &mut App) -> Result<()> {
                                 app.intonation_num_buf.push('.');
                             }
                         }
+                        // h/←: 選択モーラを左に移動（数値入力中は無効）
+                        KeyCode::Char('h') | KeyCode::Left if !num_active => {
+                            app.intonation_move_cursor(-1);
+                        }
+                        // l/→: 選択モーラを右に移動（数値入力中は無効）
+                        KeyCode::Char('l') | KeyCode::Right if !num_active => {
+                            app.intonation_move_cursor(1);
+                        }
+                        // k/↑: 現在のモーラのpitchを+0.1（数値入力中は無効）
+                        KeyCode::Char('k') | KeyCode::Up if !num_active => {
+                            app.intonation_adjust_current_pitch(0.1);
+                        }
+                        // j/↓: 現在のモーラのpitchを-0.1（数値入力中は無効）
+                        KeyCode::Char('j') | KeyCode::Down if !num_active => {
+                            app.intonation_adjust_current_pitch(-0.1);
+                        }
                         // a-z: 対応モーラのpitchを+0.1（数値入力中は無効）
                         KeyCode::Char(c) if c.is_ascii_lowercase() && !num_active => {
                             let mora_idx = (c as usize) - ('a' as usize);
