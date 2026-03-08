@@ -24,6 +24,11 @@ pub async fn run(app: &mut App) -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     loop {
+        // イントネーション編集モードのデバウンス再生チェック（100msポーリング周期）
+        if app.mode == Mode::Intonation {
+            app.intonation_play_if_debounced().await;
+        }
+
         terminal.draw(|f| ui::draw(f, app))?;
 
         // アップデートが利用可能になったらダイアログを表示する
@@ -105,6 +110,7 @@ pub async fn run(app: &mut App) -> Result<()> {
                         KeyCode::Char('T') if app.pending_g => {
                             app.tab_prev();
                         }
+                        KeyCode::Char('v') => app.enter_intonation_mode().await,
                         KeyCode::Char(':') => {
                             app.reset_pending_prefixes();
                             app.command_buf = String::new();
@@ -145,6 +151,54 @@ pub async fn run(app: &mut App) -> Result<()> {
                 let changed = app.textarea.input(input);
                 if changed {
                     app.on_edit_buf_changed().await;
+                }
+            }
+            Mode::Intonation => {
+                if let Event::Key(key) = ev {
+                    let num_active = !app.intonation_num_buf.is_empty();
+                    match key.code {
+                        // Esc: 数値入力中ならキャンセル、そうでなければイントネーション確定してNormalへ
+                        KeyCode::Esc => {
+                            if num_active {
+                                app.intonation_num_buf.clear();
+                            } else {
+                                app.intonation_confirm().await;
+                            }
+                        }
+                        // Enter: 数値入力中なら確定、そうでなければイントネーション確定してNormalへ
+                        KeyCode::Enter => {
+                            if num_active {
+                                app.intonation_confirm_num_input().await;
+                            } else {
+                                app.intonation_confirm().await;
+                            }
+                        }
+                        // Backspace: 数値バッファを1文字削除
+                        KeyCode::Backspace if num_active => {
+                            app.intonation_num_buf.pop();
+                        }
+                        // 数字: 数値入力バッファに追記
+                        KeyCode::Char(c) if c.is_ascii_digit() => {
+                            app.intonation_num_buf.push(c);
+                        }
+                        // '.': 小数点（数値入力中のみ、重複不可）
+                        KeyCode::Char('.') if num_active => {
+                            if !app.intonation_num_buf.contains('.') {
+                                app.intonation_num_buf.push('.');
+                            }
+                        }
+                        // a-z: 対応モーラのpitchを+0.1（数値入力中は無効）
+                        KeyCode::Char(c) if c.is_ascii_lowercase() && !num_active => {
+                            let mora_idx = (c as usize) - ('a' as usize);
+                            app.intonation_adjust_pitch(mora_idx, 0.1);
+                        }
+                        // A-Z: 対応モーラのpitchを-0.1（数値入力中は無効）
+                        KeyCode::Char(c) if c.is_ascii_uppercase() && !num_active => {
+                            let mora_idx = (c as usize) - ('A' as usize);
+                            app.intonation_adjust_pitch(mora_idx, -0.1);
+                        }
+                        _ => {}
+                    }
                 }
             }
             Mode::Command => {

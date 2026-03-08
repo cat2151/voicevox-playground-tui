@@ -22,6 +22,32 @@ const CURSOR_INSERT:Color = Color::Rgb(102, 217, 232);
 pub fn draw(f: &mut Frame, app: &mut App) {
     f.render_widget(Block::default().style(Style::default().bg(BG)), f.area());
 
+    // イントネーション編集モードは専用レイアウト
+    if app.mode == Mode::Intonation {
+        let show_tabbar = app.tabs.len() > 1;
+        let chunks = if show_tabbar {
+            Layout::vertical([
+                Constraint::Length(1),
+                Constraint::Min(3),
+                Constraint::Length(1),
+            ]).split(f.area())
+        } else {
+            Layout::vertical([
+                Constraint::Min(3),
+                Constraint::Length(1),
+            ]).split(f.area())
+        };
+        if show_tabbar {
+            render_tab_bar(f, app, chunks[0]);
+            render_intonation_editor(f, app, chunks[1]);
+            render_intonation_status(f, app, chunks[2]);
+        } else {
+            render_intonation_editor(f, app, chunks[0]);
+            render_intonation_status(f, app, chunks[1]);
+        }
+        return;
+    }
+
     let show_tabbar = app.tabs.len() > 1;
 
     let chunks = if show_tabbar {
@@ -88,6 +114,7 @@ fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
     let items: Vec<ListItem> = visible_indices.iter().map(|&i| {
         let line = &app.lines[i];
         let cached_mark = if app.cache.lock().unwrap().contains_key(line.as_str()) { "♪ " } else { "  " };
+        let intonation_mark = if app.intonation_cache.contains_key(line.as_str()) { "♬ " } else { "  " };
 
         // 折りたたみ時：次の行が行頭spaceなら"+"インジケータを表示する
         let fold_mark = if app.folded && app.lines.get(i + 1).map(|l| l.starts_with(' ')).unwrap_or(false) {
@@ -101,7 +128,7 @@ fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
         let body = if app.mode == Mode::Insert && i == app.cursor {
             format!("{}<editing>", cached_mark)
         } else {
-            format!("{}{}", cached_mark, line)
+            format!("{}{}{}", cached_mark, intonation_mark, line)
         };
 
         let text = Line::from(vec![
@@ -209,10 +236,11 @@ fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     let hint = match app.mode {
-        Mode::Normal => "j/k:move  i:edit  o/O:newline  dd:delete  p/P:paste  \"+p/\"+P:clip-paste  zm/zr:fold  Space/Enter:play  q:quit",
+        Mode::Normal => "j/k:move  i:edit  o/O:newline  dd:delete  p/P:paste  \"+p/\"+P:clip-paste  zm/zr:fold  Space/Enter:play  v:intonation  q:quit",
         Mode::Insert => "^A:home  ^E:end  ^K:kill  ^W:del-word  Esc/Enter:confirm",
         Mode::UpdateAvailableDialog | Mode::QuitWithUpdateDialog => "",
         Mode::Command => "",
+        Mode::Intonation => "",
     };
     let hint_width = hint.len() as u16 + 1;
 
@@ -279,6 +307,115 @@ fn centered_dialog(width: u16, height: u16, area: Rect) -> Rect {
         width:  width.min(area.width),
         height: height.min(area.height),
     }
+}
+
+// ── イントネーション編集モード ──────────────────────────────────────────────────
+
+/// イントネーション編集モードのメイン画面を描画する。
+/// レイアウト（ブロック内）:
+///   1行目: モードラベル
+///   2行目: 現在行のテキスト
+///   3行目: モーラ一覧（space区切り、選択モーラをハイライト）
+///   4行目: pitch一覧（小数1桁、選択モーラをハイライト）
+///   5行目: 数値直接入力バッファ（入力中のみ）
+fn render_intonation_editor(f: &mut Frame, app: &App, area: Rect) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ORANGE))
+        .title(Span::styled(" [INTONATION] ", Style::default().fg(ORANGE).bold()))
+        .style(Style::default().bg(BG));
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    if inner.height == 0 { return; }
+
+    let rows = Layout::vertical([
+        Constraint::Length(1), // モードラベル
+        Constraint::Length(1), // 本文
+        Constraint::Length(1), // モーラ一覧
+        Constraint::Length(1), // pitch一覧
+        Constraint::Min(0),    // 数値入力バッファ（余白兼用）
+    ]).split(inner);
+
+    // 1行目: モードラベル
+    f.render_widget(
+        Paragraph::new("イントネーション編集モード  (a-z:+0.1  A-Z:-0.1  0-9:直接入力  Esc/Enter:確定)")
+            .style(Style::default().fg(ORANGE).bold()),
+        rows[0],
+    );
+
+    // 2行目: 現在行のテキスト
+    let line_text = app.lines.get(app.cursor).cloned().unwrap_or_default();
+    f.render_widget(
+        Paragraph::new(line_text).style(Style::default().fg(FG)),
+        rows[1],
+    );
+
+    // 3行目: モーラ一覧
+    let mora_spans: Vec<Span> = app.intonation_mora_texts.iter().enumerate()
+        .flat_map(|(i, text)| {
+            let style = if i == app.intonation_cursor {
+                Style::default().fg(BG).bg(CYAN).bold()
+            } else {
+                Style::default().fg(FG)
+            };
+            let sep = if i + 1 < app.intonation_mora_texts.len() { " " } else { "" };
+            let label = format!("{}{}", text, sep);
+            [Span::styled(label, style)]
+        })
+        .collect();
+    f.render_widget(
+        Paragraph::new(Line::from(mora_spans)).style(Style::default().bg(BG)),
+        rows[2],
+    );
+
+    // 4行目: pitch一覧
+    let pitch_spans: Vec<Span> = app.intonation_pitches.iter().enumerate()
+        .flat_map(|(i, &pitch)| {
+            let style = if i == app.intonation_cursor {
+                Style::default().fg(BG).bg(YELLOW).bold()
+            } else {
+                Style::default().fg(GREEN)
+            };
+            let sep = if i + 1 < app.intonation_pitches.len() { " " } else { "" };
+            let label = format!("{:.1}{}", pitch, sep);
+            [Span::styled(label, style)]
+        })
+        .collect();
+    f.render_widget(
+        Paragraph::new(Line::from(pitch_spans)).style(Style::default().bg(BG)),
+        rows[3],
+    );
+
+    // 5行目: 数値直接入力バッファ（入力中のみ表示）
+    if !app.intonation_num_buf.is_empty() {
+        let display = format!("pitch直接入力: {}_", app.intonation_num_buf);
+        f.render_widget(
+            Paragraph::new(display).style(Style::default().fg(CYAN).bold()),
+            rows[4],
+        );
+    }
+}
+
+/// イントネーション編集モードのステータスバーを描画する。
+fn render_intonation_status(f: &mut Frame, app: &App, area: Rect) {
+    let hint = "a-z:mora pitch+0.1  A-Z:pitch-0.1  0-9:直接入力  Esc/Enter:確定してNormalへ";
+    let hint_width = hint.len() as u16 + 1;
+    let cols = Layout::horizontal([
+        Constraint::Min(0),
+        Constraint::Length(hint_width),
+    ]).split(area);
+    f.render_widget(
+        Paragraph::new(app.status_display()).style(Style::default().fg(ORANGE).bg(BG)),
+        cols[0],
+    );
+    f.render_widget(
+        Paragraph::new(hint)
+            .style(Style::default().fg(DIM).bg(BG))
+            .alignment(Alignment::Right),
+        cols[1],
+    );
 }
 
 /// アップデート利用可能ダイアログ（自動検出時）
