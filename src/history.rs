@@ -79,15 +79,40 @@ pub fn save_all(all_tab_lines: &[Vec<String>]) -> Result<()> {
         }
     }
 
-    // 余分なhistoryファイル（タブが閉じられた場合など）を削除する
-    let mut extra_tab = all_tab_lines.len();
-    loop {
-        let path = history_path_for_tab(extra_tab);
-        if path.exists() {
-            fs::remove_file(&path)?;
-            extra_tab += 1;
-        } else {
-            break;
+    // 余分なhistoryファイル（タブが閉じられた場合など）をディレクトリ全体をスキャンして削除する。
+    // 連番でスキャンする方法ではgapがある場合に取りこぼすため、ディレクトリエントリを列挙する。
+    // 削除失敗はベストエフォートとして無視する（データ保存は既に完了しているため）。
+    let current_tabs = all_tab_lines.len();
+    if let Ok(read_dir) = fs::read_dir(&dir) {
+        for entry in read_dir.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let file_name = match path.file_name().and_then(|n| n.to_str()) {
+                Some(name) => name.to_owned(),
+                None => continue,
+            };
+
+            // tab 0 の history.txt は常に保持する
+            if file_name == "history.txt" {
+                continue;
+            }
+
+            // "history{N}.txt" 形式のファイル名をパースする
+            if let Some(rest) = file_name.strip_prefix("history") {
+                if let Some(num_str) = rest.strip_suffix(".txt") {
+                    if let Ok(n) = num_str.parse::<usize>() {
+                        // tab 1 → history2.txt なので N - 1 がタブインデックスになる
+                        if n >= 2 {
+                            let tab_index = n - 1;
+                            if tab_index >= current_tabs {
+                                let _ = fs::remove_file(&path);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
