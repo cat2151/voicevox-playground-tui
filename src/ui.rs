@@ -577,7 +577,7 @@ fn render_help_overlay(f: &mut Frame, app: &App) {
     };
 
     // フッター
-    let footer = "hjkl/↑↓←→:移動  Space/Enter:実行  ESC:閉じる";
+    let footer = "キーを入力してハイライト/実行  ESC:閉じる";
     f.render_widget(
         Paragraph::new(footer).style(Style::default().fg(DIM).bg(BG)),
         footer_area,
@@ -610,13 +610,15 @@ fn render_help_overlay(f: &mut Frame, app: &App) {
     let max_left_desc_w = natural_left_desc_w.min(per_col_desc_max);
     let max_right_desc_w = natural_right_desc_w.min(per_col_desc_max);
 
+    let matching = app.help_matching_indices();
+
     let items: Vec<ListItem> = (0..n).step_by(2).flat_map(|row_start| {
         let left_idx  = row_start;
         let right_idx = row_start + 1;
 
         // 左列エントリ
-        let left_selected  = left_idx == app.help_cursor;
-        let right_selected = right_idx < n && right_idx == app.help_cursor;
+        let left_selected  = matching.contains(&left_idx);
+        let right_selected = right_idx < n && matching.contains(&right_idx);
 
         let left_entry  = &HELP_ENTRIES[left_idx];
         let right_entry = HELP_ENTRIES.get(right_idx);
