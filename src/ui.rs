@@ -299,8 +299,9 @@ fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
 ///   2行目: 現在行のテキスト
 ///   3行目: モーラ一覧（space区切り、選択モーラをハイライト）
 ///   4行目: pitch一覧（小数1桁、選択モーラをハイライト）
-///   5行目: 数値直接入力バッファ（入力中のみ）
-fn render_intonation_editor(f: &mut Frame, app: &App, area: Rect) {
+///   5行目: 数値直接入力バッファ（常に確保、空のときは空白）
+///   残り:  擬似折れ線グラフ（0.1 = 1行、中央揃え表示、範囲外はグレーアウト）
+fn render_intonation_editor(f: &mut Frame, app: &mut App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(ORANGE))
@@ -313,16 +314,17 @@ fn render_intonation_editor(f: &mut Frame, app: &App, area: Rect) {
     if inner.height == 0 { return; }
 
     let rows = Layout::vertical([
-        Constraint::Length(1), // モードラベル
-        Constraint::Length(1), // 本文
-        Constraint::Length(1), // モーラ一覧
-        Constraint::Length(1), // pitch一覧
-        Constraint::Min(0),    // 数値入力バッファ（余白兼用）
+        Constraint::Length(1), // 0: モードラベル
+        Constraint::Length(1), // 1: 本文
+        Constraint::Length(1), // 2: モーラ一覧
+        Constraint::Length(1), // 3: pitch一覧
+        Constraint::Length(1), // 4: 数値入力バッファ（常に確保）
+        Constraint::Min(0),    // 5: 擬似折れ線グラフ
     ]).split(inner);
 
     // 1行目: モードラベル
     f.render_widget(
-        Paragraph::new("イントネーション編集モード  (a-z:+0.1  A-Z:-0.1  0-9:直接入力  Esc/Enter:確定)")
+        Paragraph::new("イントネーション編集モード  (a-z:+0.1  A-Z:-0.1  0-9:直接入力  マウスクリック:pitch設定  Esc/Enter:確定)")
             .style(Style::default().fg(ORANGE).bold()),
         rows[0],
     );
@@ -370,7 +372,7 @@ fn render_intonation_editor(f: &mut Frame, app: &App, area: Rect) {
         rows[3],
     );
 
-    // 5行目: 数値直接入力バッファ（入力中のみ表示）
+    // 5行目: 数値直接入力バッファ（入力中のみ内容を表示）
     if !app.intonation_num_buf.is_empty() {
         let display = format!("pitch直接入力: {}_", app.intonation_num_buf);
         f.render_widget(
@@ -378,11 +380,114 @@ fn render_intonation_editor(f: &mut Frame, app: &App, area: Rect) {
             rows[4],
         );
     }
+
+    // 6行目以降: 擬似折れ線グラフ
+    render_intonation_graph(f, app, rows[5]);
+}
+
+/// イントネーション擬似折れ線グラフを描画する。
+/// - 0.1 pitch = 1行
+/// - 表示範囲はpitch値の中央揃え（画面行数で決まる）
+/// - 範囲外のモーラはグレーアウト表示
+/// - グラフ情報をAppに保存してマウスイベント処理で使用する
+fn render_intonation_graph(f: &mut Frame, app: &mut App, area: Rect) {
+    let graph_h = area.height;
+    if graph_h == 0 || app.intonation_pitches.is_empty() {
+        app.intonation_graph_h = 0;
+        return;
+    }
+
+    let n = app.intonation_pitches.len();
+    let intonation_cursor = app.intonation_cursor;
+
+    // pitch範囲の計算（min/maxを中央に表示）
+    let min_p = app.intonation_pitches.iter().copied().fold(f64::INFINITY, f64::min);
+    let max_p = app.intonation_pitches.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let (min_p, max_p) = if min_p > max_p { (0.0, 0.0) } else { (min_p, max_p) };
+    let center = (min_p + max_p) / 2.0;
+    let half_h = (graph_h as f64 - 1.0) / 2.0;
+    let pitch_bottom = (center - half_h * 0.1).max(0.0);
+    let pitch_top    = center + half_h * 0.1;
+
+    // モーラ列の幅と開始x座標を計算（モーラテキストの表示幅に合わせる）
+    let mut col_x: Vec<u16> = Vec::with_capacity(n);
+    let mut col_w: Vec<u16> = Vec::with_capacity(n);
+    let mut cx = area.x;
+    for (i, text) in app.intonation_mora_texts.iter().enumerate() {
+        let w = UnicodeWidthStr::width(text.as_str()) as u16
+            + if i + 1 < n { 1 } else { 0 };
+        col_x.push(cx);
+        col_w.push(w);
+        cx += w;
+    }
+
+    // pitch_top を整数単位（0.1刻み）に変換して整数演算で比較する
+    let pitch_top_unit    = (pitch_top    * 10.0).round() as i64;
+    let pitch_bottom_unit = (pitch_bottom * 10.0).round() as i64;
+
+    // Appにグラフ情報を保存（マウスイベント処理用）— cloneなしでmove代入
+    app.intonation_graph_x         = area.x;
+    app.intonation_graph_y         = area.y;
+    app.intonation_graph_h         = graph_h;
+    app.intonation_graph_pitch_top = pitch_top;
+    app.intonation_mora_col_x      = col_x;
+    app.intonation_mora_col_w      = col_w;
+
+    // グラフの各行を描画（app.intonation_pitches と app.intonation_mora_col_w を参照）
+    let mut graph_lines: Vec<Line> = Vec::with_capacity(graph_h as usize);
+    for r in 0..graph_h {
+        let spans: Vec<Span> = app.intonation_pitches.iter()
+            .zip(&app.intonation_mora_col_w)
+            .enumerate()
+            .map(|(i, (&p, &col_w))| {
+            let w        = col_w as usize;
+            let p_unit   = (p * 10.0).round() as i64;
+            let mora_row = pitch_top_unit - p_unit; // このモーラのマーカー行
+
+            let is_out  = p_unit > pitch_top_unit || p_unit < pitch_bottom_unit;
+            let is_here = mora_row == r as i64;
+            let is_sel  = i == intonation_cursor;
+
+            let (marker, style) = if is_out {
+                // 範囲外モーラ: グレーアウト（現在行にかかわらず薄い点を表示）
+                (format!("{:<width$}", ".", width = w), Style::default().fg(DIM))
+            } else if is_here && is_sel {
+                // 選択中モーラのマーカー
+                (format!("{:<width$}", "*", width = w), Style::default().fg(BG).bg(CYAN).bold())
+            } else if is_here {
+                // 非選択モーラのマーカー
+                (format!("{:<width$}", "*", width = w), Style::default().fg(GREEN))
+            } else {
+                // 空白
+                (" ".repeat(w), Style::default())
+            };
+
+            // ピッチ行よりも下（マーカー未到達）に縦線（茎）を描画
+            let (marker, style) = if !is_out && !is_here && mora_row >= 0 && r as i64 > mora_row {
+                if is_sel {
+                    (format!("{:<width$}", "|", width = w), Style::default().fg(CYAN))
+                } else {
+                    (format!("{:<width$}", "|", width = w), Style::default().fg(DIM))
+                }
+            } else {
+                (marker, style)
+            };
+
+            Span::styled(marker, style)
+        }).collect();
+
+        graph_lines.push(Line::from(spans));
+    }
+
+    f.render_widget(
+        Paragraph::new(graph_lines).style(Style::default().bg(BG)),
+        area,
+    );
 }
 
 /// イントネーション編集モードのステータスバーを描画する。
 fn render_intonation_status(f: &mut Frame, app: &App, area: Rect) {
-    let hint = "a-z:mora pitch+0.1  A-Z:pitch-0.1  0-9:直接入力  Esc/Enter:確定してNormalへ";
+    let hint = "a-z:mora pitch+0.1  A-Z:pitch-0.1  0-9:直接入力  マウスクリック:pitch設定  Esc/Enter:確定してNormalへ";
     let hint_width = UnicodeWidthStr::width(hint) as u16 + 1;
     let cols = Layout::horizontal([
         Constraint::Min(0),

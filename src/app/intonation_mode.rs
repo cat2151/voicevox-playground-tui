@@ -131,6 +131,51 @@ impl App {
         self.play_with_intonation_query().await;
     }
 
+    /// マウスクリックでpitchを設定する。
+    /// クリック位置のx座標からモーラ列を、y座標からpitch値を決定する。
+    pub async fn intonation_handle_mouse_down(&mut self, col: u16, row: u16) {
+        let gh = self.intonation_graph_h;
+        let gx = self.intonation_graph_x;
+        let gy = self.intonation_graph_y;
+        let pitch_top = self.intonation_graph_pitch_top;
+
+        if gh == 0 { return; }
+        // グラフ描画エリア外のクリックは無視する
+        if row < gy || row >= gy + gh { return; }
+        if col < gx { return; }
+
+        // クリックされたモーラ列を特定する
+        let mut mora_idx: Option<usize> = None;
+        for (i, (&x_start, &w)) in self.intonation_mora_col_x.iter()
+            .zip(self.intonation_mora_col_w.iter())
+            .enumerate()
+        {
+            if col >= x_start && col < x_start + w {
+                mora_idx = Some(i);
+                break;
+            }
+        }
+        let Some(mora_idx) = mora_idx else { return; };
+        if mora_idx >= self.intonation_pitches.len() { return; }
+
+        // クリック行からpitch値を計算する（上端行 = pitch_top、以下0.1ずつ減少）
+        let rel_row = row - gy;
+        let new_pitch = pitch_top - rel_row as f64 * 0.1;
+        let new_pitch = new_pitch.clamp(0.0, 20.0);
+        let new_pitch = (new_pitch * 10.0).round() / 10.0;
+
+        self.intonation_cursor = mora_idx;
+        self.intonation_pitches[mora_idx] = new_pitch;
+        // 数値入力サブモード中にクリックした場合はバッファをクリアして終了する
+        self.intonation_num_buf.clear();
+        voicevox::set_mora_pitches(&mut self.intonation_query, &self.intonation_pitches);
+        self.intonation_debounce = Some(Instant::now() + Duration::from_secs(1));
+        self.status_msg = format!(
+            "[♬] mora {} pitch {:.1}",
+            mora_idx, self.intonation_pitches[mora_idx]
+        );
+    }
+
     /// デバウンス期限が過ぎていたら再生する（tui.rsのイベントループから呼ぶ）。
     pub async fn intonation_play_if_debounced(&mut self) {
         if let Some(until) = self.intonation_debounce {
