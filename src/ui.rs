@@ -77,7 +77,6 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         render_status(f, app, chunks[1]);
     }
 
-    // (アップデートダイアログは廃止)
 }
 
 fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
