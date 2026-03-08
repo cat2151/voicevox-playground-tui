@@ -6,9 +6,11 @@
 //! # キーバインド（Intonationモード）
 //! - a-z : mora[0]-[25] の pitch を +0.1（1秒デバウンスで再生）
 //! - A-Z : mora[0]-[25] の pitch を -0.1（1秒デバウンスで再生）
+//! - i   : pitch を入力開始時の初期値にリセットして再生（数値入力中は無効）
 //! - 0-9 : 数値直接入力サブモードへ（バッファに追記）
 //! - .   : 小数点（バッファ空なら"0."として開始、重複不可）
 //! - BS  : 数値バッファを1文字削除
+//! - Space : 現在のintonationで即時再生
 //! - Enter : 数値入力中なら確定→再生、そうでなければイントネーション確定してNormalへ
 //! - Esc   : 数値入力中ならキャンセル、そうでなければイントネーション確定してNormalへ
 
@@ -76,6 +78,7 @@ impl App {
         self.intonation_cursor   = 0;
         self.intonation_num_buf  = String::new();
         self.intonation_debounce = None;
+        self.intonation_initial_pitches = self.intonation_pitches.clone();
         self.mode                = Mode::Intonation;
         self.status_msg          = String::from("-- INTONATION --");
     }
@@ -174,6 +177,22 @@ impl App {
             "[♬] mora {} pitch {:.1}",
             mora_idx, self.intonation_pitches[mora_idx]
         );
+    }
+
+    /// i: pitch値を入力開始時の初期値にリセットして再生する。
+    pub async fn intonation_reset_to_initial(&mut self) {
+        self.intonation_pitches = self.intonation_initial_pitches.clone();
+        voicevox::set_mora_pitches(&mut self.intonation_query, &self.intonation_pitches);
+        self.intonation_num_buf.clear();
+        self.intonation_debounce = None;
+        self.status_msg = String::from("[♬] pitch を初期値にリセット");
+        self.play_with_intonation_query().await;
+    }
+
+    /// Space: 現在のintonation_queryで即時再生する（デバウンスなし）。
+    pub async fn intonation_play_now(&mut self) {
+        self.intonation_debounce = None;
+        self.play_with_intonation_query().await;
     }
 
     /// デバウンス期限が過ぎていたら再生する（tui.rsのイベントループから呼ぶ）。
