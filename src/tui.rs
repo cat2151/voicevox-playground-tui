@@ -284,10 +284,29 @@ pub async fn run(app: &mut App) -> Result<()> {
                             app.help_key_buf.clear();
                             app.mode = Mode::Normal;
                         }
-                        // hjkl・カーソルキーはヘルプモードで無効（何もしない）
-                        KeyCode::Char('h') | KeyCode::Char('j')
-                        | KeyCode::Char('k') | KeyCode::Char('l')
-                        | KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right => {}
+                        // hjkl・カーソルキー: helpを終了して対応するNormalモードの操作を実行
+                        KeyCode::Char('j') | KeyCode::Down => {
+                            app.help_key_buf.clear();
+                            app.mode = Mode::Normal;
+                            let count = app.take_count();
+                            app.move_cursor(count as i32).await;
+                        }
+                        KeyCode::Char('k') | KeyCode::Up => {
+                            app.help_key_buf.clear();
+                            app.mode = Mode::Normal;
+                            let count = app.take_count();
+                            app.move_cursor(-(count as i32)).await;
+                        }
+                        KeyCode::Char('l') | KeyCode::Right => {
+                            app.help_key_buf.clear();
+                            app.mode = Mode::Normal;
+                            app.tab_next();
+                        }
+                        KeyCode::Char('h') | KeyCode::Left => {
+                            // h はNormalモードでhelpを開くキーなので、終了のみ
+                            app.help_key_buf.clear();
+                            app.mode = Mode::Normal;
+                        }
                         // Space・Enter・その他の文字キー: バッファに追記してハイライト更新・完全一致時に実行
                         KeyCode::Char(' ') | KeyCode::Enter => {
                             if let Some(action) = app.help_append_key(" ") {
