@@ -4,8 +4,13 @@
 //! Normal →(v)→ Intonation →(Esc/Enter)→ Normal
 //!
 //! # キーバインド（Intonationモード）
-//! - a-z : mora[0]-[25] の pitch を +0.1（1秒デバウンスで再生）
-//! - A-Z : mora[0]-[25] の pitch を -0.1（1秒デバウンスで再生）
+//! - h/←  : 選択モーラを左に移動（数値入力中は無効）
+//! - l/→  : 選択モーラを右に移動（数値入力中は無効）
+//! - k/↑  : 選択モーラの pitch を +0.1（1秒デバウンスで再生。数値入力中は無効）
+//! - j/↓  : 選択モーラの pitch を -0.1（1秒デバウンスで再生。数値入力中は無効）
+//! - a-z（※h/j/k/l を除く）: mora[0]-[25] の pitch を +0.1（1秒デバウンスで再生）
+//! - A-Z（※H/J/K/L を除く）: mora[0]-[25] の pitch を -0.1（1秒デバウンスで再生）
+//!         （アルファベット順で 0-25 番目のモーラを指定。h/j/k/l はカーソル移動・現在モーラ編集用に予約）
 //! - i   : pitch を入力開始時の初期値にリセットして再生（数値入力中は無効）
 //! - 0-9 : 数値直接入力サブモードへ（バッファに追記）
 //! - .   : 小数点（バッファ空なら"0."として開始、重複不可）
@@ -81,6 +86,21 @@ impl App {
         self.intonation_initial_pitches = self.intonation_pitches.clone();
         self.mode                = Mode::Intonation;
         self.status_msg          = String::from("-- INTONATION --");
+    }
+
+    /// h/←・l/→: 選択モーラを左右に移動する（delta=-1で左、+1で右）。
+    pub fn intonation_move_cursor(&mut self, delta: i32) {
+        let len = self.intonation_pitches.len();
+        if len == 0 { return; }
+        let new_cursor = (self.intonation_cursor as i32 + delta)
+            .clamp(0, len as i32 - 1) as usize;
+        self.intonation_cursor = new_cursor;
+    }
+
+    /// j/↓・k/↑: 現在選択中のモーラのpitchをdelta分増減する。
+    pub fn intonation_adjust_current_pitch(&mut self, delta: f64) {
+        let mora_idx = self.intonation_cursor;
+        self.intonation_adjust_pitch(mora_idx, delta);
     }
 
     /// a-z/A-Z: 指定モーラのpitchをdelta分増減し、デバウンスタイマーをセットする。
