@@ -25,10 +25,11 @@ const TOP_MARGIN_ROWS: u16 = 5;
 ///   5行目: 数値直接入力バッファ（常に確保、空のときは空白）
 ///   残り:  擬似折れ線グラフ（0.1 = 1行、上端は最高pitchからTOP_MARGIN_ROWS行上、範囲外はグレーアウト）
 pub(super) fn render_intonation_editor(f: &mut Frame, app: &mut App, area: Rect) {
+    let accent = if app.focused { ORANGE } else { DIM };
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(ORANGE))
-        .title(Span::styled(" [INTONATION] ", Style::default().fg(ORANGE).bold()))
+        .border_style(Style::default().fg(accent))
+        .title(Span::styled(" [INTONATION] ", Style::default().fg(accent).bold()))
         .style(Style::default().bg(BG));
 
     let inner = block.inner(area);
@@ -48,22 +49,23 @@ pub(super) fn render_intonation_editor(f: &mut Frame, app: &mut App, area: Rect)
     // 1行目: モードラベル
     f.render_widget(
         Paragraph::new("イントネーション編集モード  (a-z:+0.1  A-Z:-0.1  0-9:直接入力  マウスクリック:pitch設定  Esc/Enter:確定)")
-            .style(Style::default().fg(ORANGE).bold()),
+            .style(Style::default().fg(accent).bold()),
         rows[0],
     );
 
     // 2行目: 現在行のテキスト
     let line_text = app.lines.get(app.cursor).cloned().unwrap_or_default();
     f.render_widget(
-        Paragraph::new(line_text).style(Style::default().fg(FG)),
+        Paragraph::new(line_text).style(Style::default().fg(if app.focused { FG } else { DIM })),
         rows[1],
     );
 
     // 3行目: モーラ一覧（各列を4ターミナル列幅に統一）
+    let focused = app.focused;
     let mora_spans: Vec<Span> = app.intonation_mora_texts.iter().enumerate()
         .flat_map(|(i, text)| {
-            let col = column_color(i);
-            let style = if i == app.intonation_cursor {
+            let col = if focused { column_color(i) } else { DIM };
+            let style = if focused && i == app.intonation_cursor {
                 Style::default().fg(BG).bg(col).bold()
             } else {
                 Style::default().fg(col)
@@ -82,8 +84,8 @@ pub(super) fn render_intonation_editor(f: &mut Frame, app: &mut App, area: Rect)
     // 4行目: pitch一覧（各列を4ターミナル列幅に統一）
     let pitch_spans: Vec<Span> = app.intonation_pitches.iter().enumerate()
         .flat_map(|(i, &pitch)| {
-            let col = column_color(i);
-            let style = if i == app.intonation_cursor {
+            let col = if focused { column_color(i) } else { DIM };
+            let style = if focused && i == app.intonation_cursor {
                 Style::default().fg(BG).bg(col).bold()
             } else {
                 Style::default().fg(col)
@@ -102,7 +104,7 @@ pub(super) fn render_intonation_editor(f: &mut Frame, app: &mut App, area: Rect)
     if !app.intonation_num_buf.is_empty() {
         let display = format!("pitch直接入力: {}_", app.intonation_num_buf);
         f.render_widget(
-            Paragraph::new(display).style(Style::default().fg(CYAN).bold()),
+            Paragraph::new(display).style(Style::default().fg(if focused { CYAN } else { DIM }).bold()),
             rows[4],
         );
     }
@@ -213,6 +215,7 @@ fn render_intonation_graph(f: &mut Frame, app: &mut App, area: Rect) {
 
 /// イントネーション編集モードのステータスバーを描画する。
 pub(super) fn render_intonation_status(f: &mut Frame, app: &App, area: Rect) {
+    let accent = if app.focused { ORANGE } else { DIM };
     let hint = "h/← l/→:モーラ選択  k/↑:pitch+0.1 j/↓:pitch-0.1  a-z:+0.1  A-Z:-0.1  0-9:直接入力  マウスクリック:pitch設定  Esc/Enter:確定してNormalへ";
     let hint_width = UnicodeWidthStr::width(hint) as u16 + 1;
     let cols = Layout::horizontal([
@@ -220,7 +223,7 @@ pub(super) fn render_intonation_status(f: &mut Frame, app: &App, area: Rect) {
         Constraint::Length(hint_width),
     ]).split(area);
     f.render_widget(
-        Paragraph::new(app.status_display()).style(Style::default().fg(ORANGE).bg(BG)),
+        Paragraph::new(app.status_display()).style(Style::default().fg(accent).bg(BG)),
         cols[0],
     );
     f.render_widget(
