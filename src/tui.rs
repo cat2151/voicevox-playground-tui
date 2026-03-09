@@ -44,7 +44,10 @@ pub async fn run(app: &mut App) -> Result<()> {
 
         // 1分ごとにオートセーブする
         if app.last_autosave.elapsed() >= AUTO_SAVE_INTERVAL {
-            let _ = crate::history::save_all(&app.all_tab_lines());
+            let all_tab_lines = app.all_tab_lines();
+            let all_tab_intonations = app.all_tab_intonations();
+            let _ = crate::history::save_all(&all_tab_lines);
+            let _ = crate::history::save_all_intonations(&all_tab_lines, &all_tab_intonations);
             app.last_autosave = Instant::now();
         }
 

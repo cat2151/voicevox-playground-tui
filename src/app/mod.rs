@@ -35,7 +35,7 @@ pub enum Mode {
 }
 
 /// 行ごとのイントネーション編集データ（行インデックスに対応して保持する）。
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct IntonationLineData {
     /// 合成に使うaudio_query JSON（pitch値が編集済み）
     pub query:      serde_json::Value,
@@ -138,24 +138,50 @@ pub struct App {
 impl App {
     /// 複数タブの初期内容を指定してアプリを生成する。
     /// `all_lines[0]` がタブ1（history.txt）、`all_lines[1]` がタブ2（history2.txt）… に対応する。
-    pub fn new_with_tabs(all_lines: Vec<Vec<String>>) -> Self {
+    /// `all_intonations` は対応するタブのイントネーションデータ（存在しなければ空 Vec でよい）。
+    pub fn new_with_tabs(
+        all_lines:       Vec<Vec<String>>,
+        all_intonations: Vec<Vec<Option<IntonationLineData>>>,
+    ) -> Self {
         let mut all_lines = all_lines;
         if all_lines.is_empty() {
             all_lines.push(vec![String::new()]);
         }
+        let mut all_intonations = all_intonations;
 
         // 最初のタブの内容でアプリを初期化する
         let first_lines = utils::compress_trailing_empty(all_lines.remove(0));
-        let mut app = Self::new(first_lines);
+        let first_intonations = if all_intonations.is_empty() { vec![] } else { all_intonations.remove(0) };
+        let mut app = Self::new_with_intonations(first_lines, first_intonations);
 
         // 残りのタブをtabsに追加する（タブ0のスロットは既に確保済み）
-        for extra_lines in all_lines {
+        for (i, extra_lines) in all_lines.into_iter().enumerate() {
             let extra_lines = utils::compress_trailing_empty(extra_lines);
             let extra_cursor = if extra_lines.is_empty() { 0 } else { extra_lines.len() - 1 };
-            let extra_intonations = vec![None; extra_lines.len()];
+            // 対応するイントネーションデータがあれば使い、なければ全Noneで埋める
+            let mut extra_intonations: Vec<Option<IntonationLineData>> = vec![None; extra_lines.len()];
+            if let Some(loaded) = all_intonations.get(i) {
+                for (j, slot) in loaded.iter().enumerate() {
+                    if j < extra_intonations.len() {
+                        extra_intonations[j] = slot.clone();
+                    }
+                }
+            }
             app.tabs.push((extra_lines, extra_intonations, extra_cursor, false));
         }
 
+        app
+    }
+
+    /// `new` と同様だが、初期イントネーションデータも受け取る。
+    fn new_with_intonations(lines: Vec<String>, intonations: Vec<Option<IntonationLineData>>) -> Self {
+        let mut app = Self::new(lines);
+        // 渡されたイントネーションデータを行数に合わせてマージする
+        for (i, slot) in intonations.into_iter().enumerate() {
+            if i < app.line_intonations.len() {
+                app.line_intonations[i] = slot;
+            }
+        }
         app
     }
 
