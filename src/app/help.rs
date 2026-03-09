@@ -289,11 +289,11 @@ mod tests {
     }
 
     #[test]
-    fn tabnew_canonical_key_is_not_empty() {
-        // :tabnew エントリの canonical_key が空でないこと（ヘルプモードで入力できること）
+    fn tabnew_canonical_key_is_tabnew() {
+        // :tabnew エントリの canonical_key が ":tabnew" であること（ヘルプモードで入力できること）
         let entry = HELP_ENTRIES.iter().find(|e| e.action == HelpAction::TabNew)
             .expect("TabNewエントリがHELP_ENTRIESに存在すること");
-        assert!(!entry.canonical_key.is_empty(), ":tabnewのcanonical_keyは空でないこと");
+        assert_eq!(entry.canonical_key, ":tabnew", ":tabnewのcanonical_keyは\":tabnew\"であること");
     }
 
     #[test]
