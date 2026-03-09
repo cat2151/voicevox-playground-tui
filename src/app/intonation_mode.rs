@@ -54,10 +54,27 @@ impl App {
         // 行ごとのイントネーションデータがあればそれを使う（前回編集を引き継ぐ）
         if let Some(Some(data)) = self.line_intonations.get(idx) {
             let data = data.clone();
-            self.intonation_speaker_id = data.speaker_id;
-            self.intonation_mora_texts = data.mora_texts;
-            self.intonation_pitches    = data.pitches;
-            self.intonation_query      = data.query;
+            if data.query.is_null() {
+                // pitches-only（ファイルからロードした直後）: resolve_pitches_onlyでaudio_queryを取得・適用する
+                self.status_msg = String::from("[audio_query 取得中...]");
+                match self.resolve_pitches_only(idx, &data).await {
+                    Some(resolved) => {
+                        self.intonation_speaker_id = resolved.speaker_id;
+                        self.intonation_mora_texts = resolved.mora_texts;
+                        self.intonation_pitches    = resolved.pitches;
+                        self.intonation_query      = resolved.query;
+                    }
+                    None => {
+                        self.status_msg = String::from("[intonation] audio_query の取得またはモーラ抽出に失敗");
+                        return;
+                    }
+                }
+            } else {
+                self.intonation_speaker_id = data.speaker_id;
+                self.intonation_mora_texts = data.mora_texts;
+                self.intonation_pitches    = data.pitches;
+                self.intonation_query      = data.query;
+            }
         } else {
             // APIからaudio_queryを取得する
             self.status_msg = String::from("[audio_query 取得中...]");

@@ -305,6 +305,28 @@ impl App {
 
         // イントネーション編集済みの場合はキャッシュを確認し、あれば即再生、なければ合成してキャッシュに保存する
         if let Some(data) = self.line_intonations.get(index).and_then(|d| d.as_ref()).cloned() {
+            // query が Null の場合は history.txt から復元した pitches-only 状態を示す。
+            // この場合は audio_query をAPIから遅延取得し、完全なIntonationLineDataに昇格させてから再生する。
+            let data = if data.query.is_null() {
+                match self.resolve_pitches_only(index, &data).await {
+                    Some(resolved) => resolved,
+                    None => {
+                        // API取得に失敗した場合は通常の合成にフォールスルー
+                        let cached = { self.cache.lock().unwrap().get(&text).cloned() };
+                        if let Some(wav) = cached {
+                            let _ = self.play_tx.send(wav).await;
+                            self.status_msg = format!("[♪ cached] line {}", index + 1);
+                        } else {
+                            let _ = self.fetch_tx.send(FetchRequest { text, play_after: true }).await;
+                            self.status_msg = format!("[fetching...] line {}", index + 1);
+                        }
+                        return;
+                    }
+                }
+            } else {
+                data
+            };
+
             if let Some(cache_key) = Self::intonation_cache_key(data.speaker_id, &data.query) {
                 let cached = { self.cache.lock().unwrap().get(&cache_key).cloned() };
                 if let Some(wav) = cached {
@@ -325,6 +347,42 @@ impl App {
         } else {
             let _ = self.fetch_tx.send(FetchRequest { text, play_after: true }).await;
             self.status_msg = format!("[fetching...] line {}", index + 1);
+        }
+    }
+
+    /// pitches-onlyのIntonationLineData（queryがNull）に対してaudio_queryをAPIから取得し、
+    /// 保存済みpitchesを適用してline_intonationsを更新する。
+    /// pitches適用後にqueryから再抽出することでモーラ数との整合性を保つ。
+    /// 成功した場合は解決済みのIntonationLineDataを返す。
+    pub(super) async fn resolve_pitches_only(
+        &mut self,
+        index: usize,
+        data: &IntonationLineData,
+    ) -> Option<IntonationLineData> {
+        let line = self.lines.get(index)?.clone();
+        if line.trim().is_empty() { return None; }
+        let mut segments = crate::tag::parse_line(&line);
+        if segments.len() != 1 { return None; }
+        let (seg_text, ctx) = segments.swap_remove(0);
+        let speaker_id = ctx.speaker_id;
+        match crate::voicevox::get_audio_query(&seg_text, speaker_id).await {
+            Ok(mut query) => {
+                // 保存済みpitchesを適用した後、queryから再抽出して長さをモーラ数に揃える
+                crate::voicevox::set_mora_pitches(&mut query, &data.pitches);
+                let (mora_texts, applied_pitches) = crate::voicevox::extract_mora_data(&query);
+                if mora_texts.is_empty() { return None; }
+                let resolved = IntonationLineData {
+                    query: query.clone(),
+                    mora_texts,
+                    pitches: applied_pitches,
+                    speaker_id,
+                };
+                if index < self.line_intonations.len() {
+                    self.line_intonations[index] = Some(resolved.clone());
+                }
+                Some(resolved)
+            }
+            Err(_) => None,
         }
     }
 
