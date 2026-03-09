@@ -18,6 +18,20 @@ impl App {
         result
     }
 
+    /// 全タブのline_intonations（終了時保存用）を返す。
+    /// アクティブタブのline_intonationsはself.line_intonationsから、他のタブはtabsスロットから取得する。
+    pub fn all_tab_intonations(&self) -> Vec<Vec<Option<super::IntonationLineData>>> {
+        let mut result = vec![Vec::new(); self.tabs.len()];
+        for (i, (_, tab_intonations, _, _)) in self.tabs.iter().enumerate() {
+            if i == self.active_tab {
+                result[i] = self.line_intonations.clone();
+            } else {
+                result[i] = tab_intonations.clone();
+            }
+        }
+        result
+    }
+
     /// アクティブタブの現在状態をtabsスロットにswapで書き込む内部ヘルパー。
     /// クローンを避けるため、self.linesとtabs[active_tab].0、self.line_intonationsとtabs[active_tab].1を入れ替える。
     /// 呼び出し後、tabs[active_tab].0/1には正しいlines/line_intonationsが、self.lines/self.line_intonationsには古いスロット値が入る。

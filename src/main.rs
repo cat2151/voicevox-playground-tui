@@ -37,7 +37,8 @@ async fn main() -> Result<()> {
     }
 
     let all_lines = history::load_all()?;
-    let mut app = App::new_with_tabs(all_lines);
+    let all_intonations = history::load_all_intonations(&all_lines)?;
+    let mut app = App::new_with_tabs(all_lines, all_intonations);
 
     // バックグラウンドで自動アップデートチェックを開始する
     updater::spawn_update_check(std::sync::Arc::clone(&app.update_available));
@@ -46,6 +47,7 @@ async fn main() -> Result<()> {
     tui::run(&mut app).await?;
 
     history::save_all(&app.all_tab_lines())?;
+    history::save_all_intonations(&app.all_tab_lines(), &app.all_tab_intonations())?;
 
     // ユーザーが選択したアップデート実行方法に応じて処理する
     match app.update_action {
