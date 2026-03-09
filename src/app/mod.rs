@@ -89,6 +89,8 @@ pub struct App {
     pub esc_hint_until: Option<Instant>,
     /// 最後にオートセーブを実行した時刻
     pub last_autosave: Instant,
+    /// 端末ウィンドウにフォーカスがあるかどうか（FocusLost/FocusGainedで更新）
+    pub focused: bool,
     /// Normalモードの数値プレフィックスバッファ（例: "10j" の "10" 部分）
     pub count_buf: String,
     /// タブごとの (lines, line_intonations, cursor, folded) を保存するリスト（アクティブタブ含む全タブ）
@@ -223,6 +225,7 @@ impl App {
             bg_prefetch_handle: None,
             esc_hint_until: None,
             last_autosave: Instant::now(),
+            focused: true,
             count_buf: String::new(),
             tabs,
             active_tab:    0,

@@ -9,16 +9,25 @@ use crate::app::{App, Mode};
 use super::{BG, FG, DIM, YELLOW, GREEN, CYAN, CURSOR_NORMAL, CURSOR_INSERT};
 
 pub(super) fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
+    let focused = app.focused;
 
-    let cursor_bg = match app.mode {
-        Mode::Normal | Mode::Command | Mode::Help => CURSOR_NORMAL,
-        Mode::Insert => CURSOR_INSERT,
-        _ => CURSOR_NORMAL
+    let cursor_bg = if !focused {
+        BG
+    } else {
+        match app.mode {
+            Mode::Normal | Mode::Command | Mode::Help => CURSOR_NORMAL,
+            Mode::Insert => CURSOR_INSERT,
+            _ => CURSOR_NORMAL
+        }
     };
-    let cursor_fg = match app.mode {
-        Mode::Normal | Mode::Command | Mode::Help => FG,
-        Mode::Insert => BG,
-        _ => FG
+    let cursor_fg = if !focused {
+        DIM
+    } else {
+        match app.mode {
+            Mode::Normal | Mode::Command | Mode::Help => FG,
+            Mode::Insert => BG,
+            _ => FG
+        }
     };
 
     // リスト全体のRect（ボーダー内側）
@@ -55,9 +64,10 @@ pub(super) fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
             format!("{}{}{}", cached_mark, intonation_mark, line)
         };
 
+        let body_fg = if focused { FG } else { DIM };
         let text = Line::from(vec![
             Span::styled(line_num, Style::default().fg(DIM).bg(BG)),
-            Span::styled(body,     Style::default().fg(FG).bg(BG)),
+            Span::styled(body,     Style::default().fg(body_fg).bg(BG)),
         ]);
 
         let style = if i == app.cursor {
@@ -69,14 +79,36 @@ pub(super) fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
     }).collect();
 
     let title = match app.mode {
-        Mode::Normal | Mode::Command | Mode::Help => Span::styled(" [NORMAL] ", Style::default().fg(GREEN).bold()),
-        Mode::Insert => Span::styled(" [INSERT] ", Style::default().fg(CYAN).bold()),
-        _ => Span::styled(" [NORMAL] ", Style::default().fg(GREEN).bold()),
+        Mode::Normal | Mode::Command | Mode::Help => {
+            if focused {
+                Span::styled(" [NORMAL] ", Style::default().fg(GREEN).bold())
+            } else {
+                Span::styled(" [NORMAL] ", Style::default().fg(DIM))
+            }
+        }
+        Mode::Insert => {
+            if focused {
+                Span::styled(" [INSERT] ", Style::default().fg(CYAN).bold())
+            } else {
+                Span::styled(" [INSERT] ", Style::default().fg(DIM))
+            }
+        }
+        _ => {
+            if focused {
+                Span::styled(" [NORMAL] ", Style::default().fg(GREEN).bold())
+            } else {
+                Span::styled(" [NORMAL] ", Style::default().fg(DIM))
+            }
+        }
     };
-    let border_color = match app.mode {
-        Mode::Normal | Mode::Command | Mode::Help => DIM,
-        Mode::Insert => CYAN,
-        _ => DIM
+    let border_color = if !focused {
+        DIM
+    } else {
+        match app.mode {
+            Mode::Normal | Mode::Command | Mode::Help => DIM,
+            Mode::Insert => CYAN,
+            _ => DIM
+        }
     };
 
     let list = List::new(items)
@@ -87,14 +119,14 @@ pub(super) fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
                 .title(title)
                 .style(Style::default().bg(BG)),
         )
-        .highlight_symbol(">> ");
+        .highlight_symbol(if focused { ">> " } else { "   " });
 
     let mut state = ListState::default();
     state.select(Some(visible_cursor));
     f.render_stateful_widget(list, area, &mut state);
 
-    // Insertモード: カーソル行にtextareaを重ねて描画する
-    if app.mode == Mode::Insert {
+    // Insertモード: カーソル行にtextareaを重ねて描画する（フォーカス中のみ）
+    if focused && app.mode == Mode::Insert {
         // render_stateful_widget後のstate.offset()がratatuiの実際のスクロール位置
         let win_start = state.offset();
         // スクロール後の画面上の行位置を計算する
@@ -118,11 +150,16 @@ pub(super) fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 pub(super) fn render_tab_bar(f: &mut Frame, app: &App, area: Rect) {
+    let focused = app.focused;
     let spans: Vec<Span> = (0..app.tabs.len())
         .map(|i| {
             let label = format!(" {} ", i + 1);
             if i == app.active_tab {
-                Span::styled(label, Style::default().fg(BG).bg(YELLOW).bold())
+                if focused {
+                    Span::styled(label, Style::default().fg(BG).bg(YELLOW).bold())
+                } else {
+                    Span::styled(label, Style::default().fg(DIM).bg(BG))
+                }
             } else {
                 Span::styled(label, Style::default().fg(DIM).bg(BG))
             }
@@ -136,6 +173,8 @@ pub(super) fn render_tab_bar(f: &mut Frame, app: &App, area: Rect) {
 }
 
 pub(super) fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
+    let focused = app.focused;
+
     // コマンドモードは独自の表示
     if app.mode == Mode::Command {
         let cmd_display = format!(":{}", app.command_buf);
@@ -147,7 +186,7 @@ pub(super) fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
         ]).split(area);
         f.render_widget(
             Paragraph::new(cmd_display)
-                .style(Style::default().fg(YELLOW).bg(BG)),
+                .style(Style::default().fg(if focused { YELLOW } else { DIM }).bg(BG)),
             cols[0],
         );
         f.render_widget(
@@ -173,10 +212,14 @@ pub(super) fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
         Constraint::Length(hint_width),
     ]).split(area);
 
-    let status_color = match app.mode {
-        Mode::Normal | Mode::Command | Mode::Help => YELLOW,
-        Mode::Insert => CYAN,
-        _ => YELLOW
+    let status_color = if !focused {
+        DIM
+    } else {
+        match app.mode {
+            Mode::Normal | Mode::Command | Mode::Help => YELLOW,
+            Mode::Insert => CYAN,
+            _ => YELLOW
+        }
     };
     f.render_widget(
         Paragraph::new(app.status_display())
@@ -184,8 +227,9 @@ pub(super) fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
         cols[0],
     );
 
-    // NormalモードでESCが押された直後は"q:quit"をハイライト表示する
-    let esc_hint_active = app.mode == Mode::Normal
+    // NormalモードでESCが押された直後は"q:quit"をハイライト表示する（フォーカス中のみ）
+    let esc_hint_active = focused
+        && app.mode == Mode::Normal
         && app.esc_hint_until
             .map(|until| until > std::time::Instant::now())
             .unwrap_or(false);

@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use crossterm::{
     event::{self, Event, KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
-            EnableMouseCapture, DisableMouseCapture},
+            EnableMouseCapture, DisableMouseCapture, EnableFocusChange, DisableFocusChange},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -20,7 +20,7 @@ use crate::ui;
 pub async fn run(app: &mut App) -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture, EnableFocusChange)?;
     let backend      = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -29,7 +29,7 @@ pub async fn run(app: &mut App) -> Result<()> {
     impl Drop for TerminalGuard {
         fn drop(&mut self) {
             let _ = disable_raw_mode();
-            let _ = execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture);
+            let _ = execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture, DisableFocusChange);
         }
     }
     let _guard = TerminalGuard;
@@ -63,6 +63,13 @@ pub async fn run(app: &mut App) -> Result<()> {
         }
 
         let ev = event::read()?;
+
+        // フォーカスイベント: アプリ全体で処理する
+        match &ev {
+            Event::FocusGained => { app.focused = true; continue; }
+            Event::FocusLost   => { app.focused = false; continue; }
+            _ => {}
+        }
 
         // Windows は Press/Release 両方を送るため Press のみ処理する
         if let Event::Key(key) = &ev {
