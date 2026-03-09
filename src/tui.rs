@@ -141,8 +141,8 @@ pub async fn run(app: &mut App) -> Result<()> {
                             app.tab_prev();
                         }
                         KeyCode::Char('v') => app.enter_intonation_mode().await,
-                        KeyCode::Char('h') => app.enter_help_mode(),
-                        KeyCode::Char('l') => app.tab_next(),
+                        KeyCode::Char('h') | KeyCode::Left => app.enter_help_mode(),
+                        KeyCode::Char('l') | KeyCode::Right => app.tab_next(),
                         KeyCode::Char(':') => {
                             app.reset_pending_prefixes();
                             app.command_buf = String::new();
