@@ -36,8 +36,7 @@ async fn main() -> Result<()> {
         return clipboard::run().await;
     }
 
-    let all_lines = history::load_all()?;
-    let all_intonations = history::load_all_intonations(&all_lines)?;
+    let (all_lines, all_intonations) = history::load_all()?;
     let mut app = App::new_with_tabs(all_lines, all_intonations);
 
     // バックグラウンドで自動アップデートチェックを開始する
@@ -49,8 +48,7 @@ async fn main() -> Result<()> {
     let final_lines = app.all_tab_lines();
     let final_intonations = app.all_tab_intonations();
 
-    history::save_all(&final_lines)?;
-    history::save_all_intonations(&final_lines, &final_intonations)?;
+    history::save_all(&final_lines, &final_intonations)?;
 
     // ユーザーが選択したアップデート実行方法に応じて処理する
     match app.update_action {
