@@ -64,9 +64,10 @@ pub(super) fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
             format!("{}{}{}", cached_mark, intonation_mark, line)
         };
 
+        let body_fg = if focused { FG } else { DIM };
         let text = Line::from(vec![
             Span::styled(line_num, Style::default().fg(DIM).bg(BG)),
-            Span::styled(body,     Style::default().fg(FG).bg(BG)),
+            Span::styled(body,     Style::default().fg(body_fg).bg(BG)),
         ]);
 
         let style = if i == app.cursor {
@@ -77,13 +78,27 @@ pub(super) fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
         ListItem::new(text).style(style)
     }).collect();
 
-    let title = if !focused {
-        Span::styled(" [NORMAL] ", Style::default().fg(DIM))
-    } else {
-        match app.mode {
-            Mode::Normal | Mode::Command | Mode::Help => Span::styled(" [NORMAL] ", Style::default().fg(GREEN).bold()),
-            Mode::Insert => Span::styled(" [INSERT] ", Style::default().fg(CYAN).bold()),
-            _ => Span::styled(" [NORMAL] ", Style::default().fg(GREEN).bold()),
+    let title = match app.mode {
+        Mode::Normal | Mode::Command | Mode::Help => {
+            if focused {
+                Span::styled(" [NORMAL] ", Style::default().fg(GREEN).bold())
+            } else {
+                Span::styled(" [NORMAL] ", Style::default().fg(DIM))
+            }
+        }
+        Mode::Insert => {
+            if focused {
+                Span::styled(" [INSERT] ", Style::default().fg(CYAN).bold())
+            } else {
+                Span::styled(" [INSERT] ", Style::default().fg(DIM))
+            }
+        }
+        _ => {
+            if focused {
+                Span::styled(" [NORMAL] ", Style::default().fg(GREEN).bold())
+            } else {
+                Span::styled(" [NORMAL] ", Style::default().fg(DIM))
+            }
         }
     };
     let border_color = if !focused {
@@ -104,14 +119,14 @@ pub(super) fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
                 .title(title)
                 .style(Style::default().bg(BG)),
         )
-        .highlight_symbol(">> ");
+        .highlight_symbol(if focused { ">> " } else { "   " });
 
     let mut state = ListState::default();
     state.select(Some(visible_cursor));
     f.render_stateful_widget(list, area, &mut state);
 
-    // Insertモード: カーソル行にtextareaを重ねて描画する
-    if app.mode == Mode::Insert {
+    // Insertモード: カーソル行にtextareaを重ねて描画する（フォーカス中のみ）
+    if focused && app.mode == Mode::Insert {
         // render_stateful_widget後のstate.offset()がratatuiの実際のスクロール位置
         let win_start = state.offset();
         // スクロール後の画面上の行位置を計算する

@@ -110,7 +110,7 @@ pub(super) fn render_intonation_editor(f: &mut Frame, app: &mut App, area: Rect)
     }
 
     // 6行目以降: 擬似折れ線グラフ
-    render_intonation_graph(f, app, rows[5]);
+    render_intonation_graph(f, app, rows[5], focused);
 }
 
 /// イントネーション擬似折れ線グラフを描画する。
@@ -118,7 +118,7 @@ pub(super) fn render_intonation_editor(f: &mut Frame, app: &mut App, area: Rect)
 /// - 上端は最高pitchからTOP_MARGIN_ROWS行上（画面が狭い場合はgraph_h-1行上に縮小）
 /// - 範囲外のモーラはグレーアウト表示
 /// - グラフ情報をAppに保存してマウスイベント処理で使用する
-fn render_intonation_graph(f: &mut Frame, app: &mut App, area: Rect) {
+fn render_intonation_graph(f: &mut Frame, app: &mut App, area: Rect, focused: bool) {
     let graph_h = area.height;
     if graph_h == 0 || app.intonation_pitches.is_empty() {
         app.intonation_graph_h = 0;
@@ -173,8 +173,8 @@ fn render_intonation_graph(f: &mut Frame, app: &mut App, area: Rect) {
 
             let is_out  = p_unit > pitch_top_unit || p_unit < pitch_bottom_unit;
             let is_here = mora_row == r as i64;
-            let is_sel  = i == intonation_cursor;
-            let col     = column_color(i);
+            let is_sel  = focused && i == intonation_cursor;
+            let col     = if focused { column_color(i) } else { DIM };
 
             let (marker, style) = if is_out {
                 // 範囲外モーラ: グレーアウト（現在行にかかわらず薄い点を表示）
