@@ -56,7 +56,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
     HelpEntry { key: "gT",          canonical_key: "gT",    desc: "前のタブへ移動",               action: HelpAction::TabPrev },
     HelpEntry { key: "p",           canonical_key: "p",     desc: "ヤンクバッファを下にペースト", action: HelpAction::PasteBelow },
     HelpEntry { key: "Space/Enter", canonical_key: " ",     desc: "現在行を再生",                 action: HelpAction::PlayCurrent },
-    HelpEntry { key: ":tabnew",     canonical_key: "",      desc: "新しいタブを作成",             action: HelpAction::TabNew },
+    HelpEntry { key: ":tabnew",     canonical_key: ":tabnew", desc: "新しいタブを作成",             action: HelpAction::TabNew },
     HelpEntry { key: "v",           canonical_key: "v",     desc: "イントネーション編集モードへ", action: HelpAction::IntonationMode },
     HelpEntry { key: "\"+P",        canonical_key: "\"+P",  desc: "クリップボードを上にペースト", action: HelpAction::PasteAboveClipboard },
     HelpEntry { key: "q",           canonical_key: "q",     desc: "終了",                         action: HelpAction::Quit },
@@ -286,5 +286,26 @@ mod tests {
         let entry = HELP_ENTRIES.iter().find(|e| e.action == HelpAction::TabNext)
             .expect("TabNextエントリがHELP_ENTRIESに存在すること");
         assert_eq!(entry.canonical_key, "gt");
+    }
+
+    #[test]
+    fn tabnew_canonical_key_is_tabnew() {
+        // :tabnew エントリの canonical_key が ":tabnew" であること（ヘルプモードで入力できること）
+        let entry = HELP_ENTRIES.iter().find(|e| e.action == HelpAction::TabNew)
+            .expect("TabNewエントリがHELP_ENTRIESに存在すること");
+        assert_eq!(entry.canonical_key, ":tabnew", ":tabnewのcanonical_keyは\":tabnew\"であること");
+    }
+
+    #[test]
+    fn append_tabnew_returns_tabnew_action() {
+        // `:tabnew` と順番に入力すると TabNew アクションが返ること
+        let mut buf = String::new();
+        for ch in [":", "t", "a", "b", "n", "e"] {
+            let action = append_key(&mut buf, ch);
+            assert_eq!(action, None, "'{}'入力後はまだアクションなし", ch);
+        }
+        let action = append_key(&mut buf, "w");
+        assert_eq!(action, Some(HelpAction::TabNew), ":tabnew完全入力でTabNewが返ること");
+        assert!(buf.is_empty(), "完全一致後バッファがクリアされること");
     }
 }
