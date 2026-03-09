@@ -234,12 +234,16 @@ pub fn save_all_intonations(
                 continue;
             }
 
-            // "intonation{N}.json" 形式のファイル名をパースする
+            // "intonation{N}.json" 形式のファイル名をパースする。
+            // N < 2 の "intonation0.json" / "intonation1.json" は本スキームで生成しないため削除する。
             if let Some(rest) = file_name.strip_prefix("intonation") {
                 if let Some(num_str) = rest.strip_suffix(".json") {
                     if let Ok(n) = num_str.parse::<usize>() {
-                        // tab 1 → intonation2.json なので N - 1 がタブインデックスになる
-                        if n >= 2 {
+                        if n < 2 {
+                            // 本スキームでは生成しないファイル（不正ファイル）は削除する
+                            let _ = fs::remove_file(&path);
+                        } else {
+                            // tab 1 → intonation2.json なので N - 1 がタブインデックスになる
                             let tab_index = n - 1;
                             if tab_index >= num_tabs {
                                 let _ = fs::remove_file(&path);
