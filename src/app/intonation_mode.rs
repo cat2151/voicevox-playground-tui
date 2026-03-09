@@ -55,23 +55,17 @@ impl App {
         if let Some(Some(data)) = self.line_intonations.get(idx) {
             let data = data.clone();
             if data.query.is_null() {
-                // pitches-only（ファイルからロードした直後）: audio_queryをAPIから取得してpitchesを適用する
+                // pitches-only（ファイルからロードした直後）: resolve_pitches_onlyでaudio_queryを取得・適用する
                 self.status_msg = String::from("[audio_query 取得中...]");
-                match voicevox::get_audio_query(&text, speaker_id).await {
-                    Ok(mut query) => {
-                        let (mora_texts, _) = voicevox::extract_mora_data(&query);
-                        if mora_texts.is_empty() {
-                            self.status_msg = String::from("[intonation] モーラが取得できなかった");
-                            return;
-                        }
-                        voicevox::set_mora_pitches(&mut query, &data.pitches);
-                        self.intonation_speaker_id = speaker_id;
-                        self.intonation_mora_texts = mora_texts;
-                        self.intonation_pitches    = data.pitches;
-                        self.intonation_query      = query;
+                match self.resolve_pitches_only(idx, &data).await {
+                    Some(resolved) => {
+                        self.intonation_speaker_id = resolved.speaker_id;
+                        self.intonation_mora_texts = resolved.mora_texts;
+                        self.intonation_pitches    = resolved.pitches;
+                        self.intonation_query      = resolved.query;
                     }
-                    Err(e) => {
-                        self.status_msg = format!("[audio_query error] {}", e);
+                    None => {
+                        self.status_msg = String::from("[intonation] audio_query の取得またはモーラ抽出に失敗");
                         return;
                     }
                 }

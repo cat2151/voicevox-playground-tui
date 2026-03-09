@@ -352,8 +352,9 @@ impl App {
 
     /// pitches-onlyのIntonationLineData（queryがNull）に対してaudio_queryをAPIから取得し、
     /// 保存済みpitchesを適用してline_intonationsを更新する。
+    /// pitches適用後にqueryから再抽出することでモーラ数との整合性を保つ。
     /// 成功した場合は解決済みのIntonationLineDataを返す。
-    async fn resolve_pitches_only(
+    pub(super) async fn resolve_pitches_only(
         &mut self,
         index: usize,
         data: &IntonationLineData,
@@ -366,12 +367,14 @@ impl App {
         let speaker_id = ctx.speaker_id;
         match crate::voicevox::get_audio_query(&seg_text, speaker_id).await {
             Ok(mut query) => {
-                let (mora_texts, _) = crate::voicevox::extract_mora_data(&query);
+                // 保存済みpitchesを適用した後、queryから再抽出して長さをモーラ数に揃える
                 crate::voicevox::set_mora_pitches(&mut query, &data.pitches);
+                let (mora_texts, applied_pitches) = crate::voicevox::extract_mora_data(&query);
+                if mora_texts.is_empty() { return None; }
                 let resolved = IntonationLineData {
                     query: query.clone(),
                     mora_texts,
-                    pitches: data.pitches.clone(),
+                    pitches: applied_pitches,
                     speaker_id,
                 };
                 if index < self.line_intonations.len() {
