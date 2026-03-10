@@ -92,6 +92,66 @@ impl App {
         self.restart_background_prefetch();
     }
 
+    /// 指定インデックスのタブに直接移動する（インデックスが範囲外の場合は何もしない）。
+    pub fn switch_to_tab(&mut self, index: usize) {
+        if index >= self.tabs.len() { return; }
+        if index == self.active_tab { return; }
+        self.save_current_tab();
+        self.active_tab = index;
+        self.lines             = std::mem::take(&mut self.tabs[self.active_tab].0);
+        self.line_intonations  = std::mem::take(&mut self.tabs[self.active_tab].1);
+        self.cursor            = self.tabs[self.active_tab].2;
+        self.folded            = self.tabs[self.active_tab].3;
+        self.normalize_cursor_for_fold();
+        self.restart_background_prefetch();
+    }
+
+    /// 現在のアプリ状態からセッション状態を収集して返す。
+    /// 各タブのカーソル位置・折りたたみ状態をすべて含む。
+    pub fn collect_session_state(&self) -> crate::history::SessionState {
+        let num_tabs = self.tabs.len();
+        let mut tab_states = Vec::with_capacity(num_tabs);
+        for i in 0..num_tabs {
+            let (cursor, folded) = if i == self.active_tab {
+                (self.cursor, self.folded)
+            } else {
+                (self.tabs[i].2, self.tabs[i].3)
+            };
+            tab_states.push(crate::history::TabSessionState { cursor, folded });
+        }
+        crate::history::SessionState {
+            active_tab: self.active_tab,
+            tabs: tab_states,
+        }
+    }
+
+    /// 保存済みセッション状態をアプリに適用する。
+    /// 各タブのカーソル位置・折りたたみ状態を復元し、アクティブタブに切り替える。
+    pub fn restore_session_state(&mut self, state: &crate::history::SessionState) {
+        let num_tabs = self.tabs.len();
+        // まずタブ0（現在アクティブ）のカーソル/折りたたみを適用する
+        if let Some(tab_state) = state.tabs.first() {
+            let max_cursor = self.lines.len().saturating_sub(1);
+            self.cursor = tab_state.cursor.min(max_cursor);
+            self.folded = tab_state.folded;
+            self.normalize_cursor_for_fold();
+        }
+        // タブ1以降の状態を適用する
+        for (i, tab_state) in state.tabs.iter().enumerate().skip(1) {
+            if i >= num_tabs { break; }
+            let max_cursor = self.tabs[i].0.len().saturating_sub(1);
+            self.tabs[i].2 = tab_state.cursor.min(max_cursor);
+            self.tabs[i].3 = tab_state.folded;
+        }
+        // 保存済みアクティブタブに切り替える（範囲外はクランプ）
+        if num_tabs > 0 {
+            let target = state.active_tab.min(num_tabs - 1);
+            if target != 0 {
+                self.switch_to_tab(target);
+            }
+        }
+    }
+
     /// コマンドモードのバッファに入力された文字列を解釈して実行する。
     pub async fn execute_command(&mut self) {
         let cmd = self.command_buf.trim().to_string();
