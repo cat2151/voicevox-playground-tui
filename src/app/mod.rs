@@ -424,7 +424,7 @@ impl App {
         // カーソル行がイントネーション編集済みの場合はイントネーション用のキャッシュキーを使う。
         // 通常の行テキストをキーとすると、イントネーション合成結果がキャッシュされないため
         // wait_for_cachedが30秒タイムアウトするまで他の行のprefetchが始まらない。
-        let cursor_text = {
+        let cursor_cache_key = {
             let intonation_key = self.line_intonations
                 .get(self.cursor)
                 .and_then(|d| d.as_ref())
@@ -451,7 +451,7 @@ impl App {
             .collect()
         };
         self.bg_prefetch_handle = Some(background_prefetch::spawn_background_prefetch(
-            cursor_text,
+            cursor_cache_key,
             target_texts,
             Arc::clone(&self.cache),
             Arc::clone(&self.is_fetching),

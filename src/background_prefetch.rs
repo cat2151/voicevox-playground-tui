@@ -15,26 +15,26 @@ use crate::fetch::{FetchRequest, IsFetching, WavCache};
 /// バックグラウンドprefetchタスクを起動する。
 /// 返されたJoinHandleをabort()することで中断できる。
 ///
-/// - `cursor_text`:  現在行のテキスト（再生fetch完了待ちに使う）
-/// - `target_texts`: prefetch対象テキストのリスト（カーソル位置から近い順）
+/// - `cursor_cache_key`: 現在行のキャッシュキー（通常行はテキスト、イントネーション編集済み行は"intonation:{speaker_id}:{query_json}"）
+/// - `target_texts`:     prefetch対象テキストのリスト（カーソル位置から近い順）
 pub fn spawn_background_prefetch(
-    cursor_text:  String,
-    target_texts: Vec<String>,
-    cache:        WavCache,
-    is_fetching:  IsFetching,
-    fetch_tx:     mpsc::Sender<FetchRequest>,
+    cursor_cache_key: String,
+    target_texts:     Vec<String>,
+    cache:            WavCache,
+    is_fetching:      IsFetching,
+    fetch_tx:         mpsc::Sender<FetchRequest>,
 ) -> JoinHandle<()> {
     tokio::spawn(run_background_prefetch(
-        cursor_text, target_texts, cache, is_fetching, fetch_tx,
+        cursor_cache_key, target_texts, cache, is_fetching, fetch_tx,
     ))
 }
 
 async fn run_background_prefetch(
-    cursor_text:  String,
-    target_texts: Vec<String>,
-    cache:        WavCache,
-    is_fetching:  IsFetching,
-    fetch_tx:     mpsc::Sender<FetchRequest>,
+    cursor_cache_key: String,
+    target_texts:     Vec<String>,
+    cache:            WavCache,
+    is_fetching:      IsFetching,
+    fetch_tx:         mpsc::Sender<FetchRequest>,
 ) {
     // 現在行のfetchが完了するまで待機する
     wait_for_fetch_complete(&is_fetching).await;
@@ -42,8 +42,8 @@ async fn run_background_prefetch(
     // is_fetchingがfalseになっても、fetch_and_play()がキューに積まれた直後など
     // 現在行のcacheがまだ用意されていない場合がある。
     // cacheに格納されるまで追加で待機する。
-    if !cursor_text.trim().is_empty() && !cache.lock().unwrap().contains_key(&cursor_text) {
-        wait_for_cached(&cache, &cursor_text, Duration::from_secs(30)).await;
+    if !cursor_cache_key.trim().is_empty() && !cache.lock().unwrap().contains_key(&cursor_cache_key) {
+        wait_for_cached(&cache, &cursor_cache_key, Duration::from_secs(30)).await;
     }
 
     for text in target_texts {
@@ -164,7 +164,7 @@ mod tests {
         let cache: WavCache = Arc::new(Mutex::new(HashMap::new()));
         let is_fetching: IsFetching = Arc::new(AtomicBool::new(false));
 
-        // 現在行（cursor_text）と隣接行をすべてキャッシュ済みにする
+        // 現在行（cursor_cache_key）と隣接行をすべてキャッシュ済みにする
         {
             let mut c = cache.lock().unwrap();
             c.insert("line0".into(), vec![1, 2, 3]);
@@ -189,7 +189,7 @@ mod tests {
         let cache: WavCache = Arc::new(Mutex::new(HashMap::new()));
         let is_fetching: IsFetching = Arc::new(AtomicBool::new(true));
 
-        // cursor_textをcacheに入れておく（is_fetching待ちのみをテストする）
+        // cursor_cache_keyをcacheに入れておく（is_fetching待ちのみをテストする）
         cache.lock().unwrap().insert("line1".into(), vec![]);
 
         let is_fetching_clone = Arc::clone(&is_fetching);
@@ -219,7 +219,7 @@ mod tests {
         let cache: WavCache = Arc::new(Mutex::new(HashMap::new()));
         let is_fetching: IsFetching = Arc::new(AtomicBool::new(false));
 
-        // cursor_textをcacheに入れておく（one-at-a-timeのみをテストする）
+        // cursor_cache_keyをcacheに入れておく（one-at-a-timeのみをテストする）
         cache.lock().unwrap().insert("line2".into(), vec![]);
 
         let cache_clone = Arc::clone(&cache);
