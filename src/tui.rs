@@ -99,7 +99,11 @@ pub async fn run(app: &mut App) -> Result<()> {
                         KeyCode::Char('i') => app.enter_insert_current(),
                         KeyCode::Char('o') => app.enter_insert_below(),
                         KeyCode::Char('O') => app.enter_insert_above(),
-                        KeyCode::Enter | KeyCode::Char(' ') => app.play_current().await,
+                        KeyCode::Enter => {
+                            app.play_current().await;
+                            app.move_cursor(1).await;
+                        }
+                        KeyCode::Char(' ') => app.play_current().await,
                         KeyCode::Char('p') if app.pending_clipboard => app.paste_below_from_clipboard().await,
                         KeyCode::Char('P') if app.pending_clipboard => app.paste_above_from_clipboard().await,
                         KeyCode::Char('p') => app.paste_below().await,
@@ -324,10 +328,17 @@ pub async fn run(app: &mut App) -> Result<()> {
                             app.help_key_buf.clear();
                             app.mode = Mode::Normal;
                         }
-                        // Space・Enter・その他の文字キー: バッファに追記してハイライト更新・完全一致時に実行
+                        // Enter: helpを終了して現在行を再生→下へ移動（NormalモードのEnterと同じ）
+                        KeyCode::Enter => {
+                            app.help_key_buf.clear();
+                            app.mode = Mode::Normal;
+                            app.play_current().await;
+                            app.move_cursor(1).await;
+                        }
+                        // Space・その他の文字キー: バッファに追記してハイライト更新・完全一致時に実行
                         _ => {
                             let maybe_action = match key.code {
-                                KeyCode::Char(' ') | KeyCode::Enter => app.help_append_key(" "),
+                                KeyCode::Char(' ') => app.help_append_key(" "),
                                 KeyCode::Char(c)                    => app.help_append_key(&c.to_string()),
                                 _                                   => None,
                             };
