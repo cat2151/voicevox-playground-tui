@@ -244,10 +244,22 @@ impl App {
         }
     }
 
-    /// 現在のintonation_queryを使ってバックグラウンドで合成し再生する。
+    /// 現在のintonation_queryを使って再生する。
+    /// キャッシュにWAVが存在する場合は即時再生し、ない場合はバックグラウンドで合成して再生する。
     pub(super) async fn play_with_intonation_query(&mut self) {
-        let query      = self.intonation_query.clone();
         let speaker_id = self.intonation_speaker_id;
-        self.spawn_intonation_play(query, speaker_id);
+        if let Some(cache_key) = Self::intonation_cache_key(speaker_id, &self.intonation_query) {
+            let cached = { self.cache.lock().unwrap().get(&cache_key).cloned() };
+            if let Some(wav) = cached {
+                // in-flight の合成タスクがあれば abort して遅延再生を防ぐ
+                if let Some(h) = self.intonation_play_handle.take() {
+                    h.abort();
+                }
+                let _ = self.play_tx.send(wav).await;
+                self.status_msg = String::from("[♬ cached]");
+                return;
+            }
+        }
+        self.spawn_intonation_play(self.intonation_query.clone(), speaker_id);
     }
 }
