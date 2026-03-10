@@ -158,7 +158,7 @@ impl App {
         // 行インデックスごとにイントネーションデータを保存する。
         // ただし、入力前にデータがなく（None）かつpitchを変更していない場合は保存しない。
         // これにより、未編集のままESCで抜けてもキャッシュマークがつかない。
-        if self.cursor < self.line_intonations.len() {
+        let saved = if self.cursor < self.line_intonations.len() {
             let had_prior_data = self.line_intonations[self.cursor].is_some();
             let pitches_changed = self.intonation_pitches != self.intonation_initial_pitches;
             if pitches_changed || had_prior_data {
@@ -168,11 +168,20 @@ impl App {
                     pitches:    self.intonation_pitches.clone(),
                     speaker_id: self.intonation_speaker_id,
                 });
+                true
+            } else {
+                false
             }
-        }
+        } else {
+            false
+        };
         self.intonation_debounce = None;
         self.mode       = Mode::Normal;
-        self.status_msg = format!("[♬ intonation saved] line {}", self.cursor + 1);
+        self.status_msg = if saved {
+            format!("[♬ intonation saved] line {}", self.cursor + 1)
+        } else {
+            String::from("[♬ intonation] no changes")
+        };
         // 確定時に中間的な pitch 編集で蓄積した不要なキャッシュエントリを削除する
         self.evict_intonation_cache();
         // 確定と同時に再生する
