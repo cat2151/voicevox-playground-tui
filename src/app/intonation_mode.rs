@@ -155,14 +155,20 @@ impl App {
 
     /// ESC/Enter（数値入力なし）: イントネーションを確定してNormalモードへ戻る。
     pub async fn intonation_confirm(&mut self) {
-        // 行インデックスごとにイントネーションデータを保存する
+        // 行インデックスごとにイントネーションデータを保存する。
+        // ただし、入力前にデータがなく（None）かつpitchを変更していない場合は保存しない。
+        // これにより、未編集のままESCで抜けてもキャッシュマークがつかない。
         if self.cursor < self.line_intonations.len() {
-            self.line_intonations[self.cursor] = Some(IntonationLineData {
-                query:      self.intonation_query.clone(),
-                mora_texts: self.intonation_mora_texts.clone(),
-                pitches:    self.intonation_pitches.clone(),
-                speaker_id: self.intonation_speaker_id,
-            });
+            let had_prior_data = self.line_intonations[self.cursor].is_some();
+            let pitches_changed = self.intonation_pitches != self.intonation_initial_pitches;
+            if pitches_changed || had_prior_data {
+                self.line_intonations[self.cursor] = Some(IntonationLineData {
+                    query:      self.intonation_query.clone(),
+                    mora_texts: self.intonation_mora_texts.clone(),
+                    pitches:    self.intonation_pitches.clone(),
+                    speaker_id: self.intonation_speaker_id,
+                });
+            }
         }
         self.intonation_debounce = None;
         self.mode       = Mode::Normal;
