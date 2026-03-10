@@ -421,7 +421,17 @@ impl App {
         if let Some(h) = self.bg_prefetch_handle.take() {
             h.abort();
         }
-        let cursor_text = self.lines.get(self.cursor).cloned().unwrap_or_default();
+        // カーソル行がイントネーション編集済みの場合はイントネーション用のキャッシュキーを使う。
+        // 通常の行テキストをキーとすると、イントネーション合成結果がキャッシュされないため
+        // wait_for_cachedが30秒タイムアウトするまで他の行のprefetchが始まらない。
+        let cursor_text = {
+            let intonation_key = self.line_intonations
+                .get(self.cursor)
+                .and_then(|d| d.as_ref())
+                .filter(|d| !d.query.is_null())
+                .and_then(|d| Self::intonation_cache_key(d.speaker_id, &d.query));
+            intonation_key.unwrap_or_else(|| self.lines.get(self.cursor).cloned().unwrap_or_default())
+        };
         // 折りたたみ時は表示行のみをprefetch対象とする
         let target_texts: Vec<String> = if self.folded {
             let visible_indices = self.visible_line_indices();
