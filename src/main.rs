@@ -39,6 +39,10 @@ async fn main() -> Result<()> {
     let (all_lines, all_intonations) = history::load_all()?;
     let mut app = App::new_with_tabs(all_lines, all_intonations);
 
+    // 前回終了時のタブ・カーソル位置・折りたたみ状態を復元する
+    let session_state = history::load_session_state();
+    app.restore_session_state(&session_state);
+
     // バックグラウンドで自動アップデートチェックを開始する
     updater::spawn_update_check(std::sync::Arc::clone(&app.update_available));
 
@@ -47,8 +51,10 @@ async fn main() -> Result<()> {
 
     let final_lines = app.all_tab_lines();
     let final_intonations = app.all_tab_intonations();
+    let final_session_state = app.collect_session_state();
 
     history::save_all(&final_lines, &final_intonations)?;
+    history::save_session_state(&final_session_state)?;
 
     // ユーザーが選択したアップデート実行方法に応じて処理する
     match app.update_action {

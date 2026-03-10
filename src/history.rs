@@ -6,6 +6,22 @@ use anyhow::Result;
 
 use crate::app::IntonationLineData;
 
+/// タブごとのセッション状態（カーソル行番号・折りたたみ状態）。
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct TabSessionState {
+    pub cursor: usize,
+    pub folded: bool,
+}
+
+/// 起動・終了・自動保存で保存・復元するセッション状態。
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct SessionState {
+    /// アクティブなタブのインデックス（0始まり）。
+    pub active_tab: usize,
+    /// 各タブのカーソル行番号・折りたたみ状態。インデックスはタブインデックスに対応する。
+    pub tabs: Vec<TabSessionState>,
+}
+
 fn history_dir() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -185,6 +201,34 @@ pub fn save_all(
     Ok(())
 }
 
+/// セッション状態ファイル（history.json）のパスを返す。
+fn session_state_path() -> PathBuf {
+    history_dir().join("history.json")
+}
+
+/// セッション状態（アクティブタブ・各タブのカーソル位置・折りたたみ状態）を history.json に保存する。
+pub fn save_session_state(state: &SessionState) -> Result<()> {
+    let dir = history_dir();
+    fs::create_dir_all(&dir)?;
+    let path = session_state_path();
+    let json = serde_json::to_string_pretty(state)?;
+    fs::write(&path, json)?;
+    Ok(())
+}
+
+/// history.json からセッション状態を読み込む。
+/// ファイルが存在しない場合や読み込みに失敗した場合はデフォルト値を返す。
+pub fn load_session_state() -> SessionState {
+    let path = session_state_path();
+    if !path.exists() {
+        return SessionState::default();
+    }
+    fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -237,5 +281,34 @@ mod tests {
         assert_eq!(text, "text");
         let p = pitches.unwrap();
         assert!(p.is_empty());
+    }
+
+    #[test]
+    fn session_state_default_is_zeroed() {
+        let s = SessionState::default();
+        assert_eq!(s.active_tab, 0);
+        assert!(s.tabs.is_empty());
+    }
+
+    #[test]
+    fn session_state_round_trips_through_json() {
+        let state = SessionState {
+            active_tab: 2,
+            tabs: vec![
+                TabSessionState { cursor: 5, folded: false },
+                TabSessionState { cursor: 0, folded: true },
+                TabSessionState { cursor: 3, folded: false },
+            ],
+        };
+        let json = serde_json::to_string(&state).unwrap();
+        let restored: SessionState = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.active_tab, 2);
+        assert_eq!(restored.tabs.len(), 3);
+        assert_eq!(restored.tabs[0].cursor, 5);
+        assert!(!restored.tabs[0].folded);
+        assert_eq!(restored.tabs[1].cursor, 0);
+        assert!(restored.tabs[1].folded);
+        assert_eq!(restored.tabs[2].cursor, 3);
+        assert!(!restored.tabs[2].folded);
     }
 }
