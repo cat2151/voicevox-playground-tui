@@ -99,7 +99,11 @@ pub async fn run(app: &mut App) -> Result<()> {
                         KeyCode::Char('i') => app.enter_insert_current(),
                         KeyCode::Char('o') => app.enter_insert_below(),
                         KeyCode::Char('O') => app.enter_insert_above(),
-                        KeyCode::Enter | KeyCode::Char(' ') => app.play_current().await,
+                        KeyCode::Enter => {
+                            app.play_current().await;
+                            app.move_cursor(1).await;
+                        }
+                        KeyCode::Char(' ') => app.play_current().await,
                         KeyCode::Char('p') if app.pending_clipboard => app.paste_below_from_clipboard().await,
                         KeyCode::Char('P') if app.pending_clipboard => app.paste_above_from_clipboard().await,
                         KeyCode::Char('p') => app.paste_below().await,
