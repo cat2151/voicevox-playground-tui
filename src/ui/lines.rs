@@ -46,16 +46,21 @@ pub(super) fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
 
     let items: Vec<ListItem> = visible_indices.iter().map(|&i| {
         let line = &app.lines[i];
+        // イントネーション編集済みの行用のキャッシュキーはロック取得前に計算しておく
+        let intonation_key = app.line_intonations.get(i)
+            .and_then(|d| d.as_ref())
+            .filter(|d| !d.query.is_null())
+            .and_then(|d| App::intonation_cache_key(d.speaker_id, &d.query));
         let cached_mark = {
-            // イントネーション編集済みの行はキャッシュキーが異なるため、専用キーで確認する
+            // query が非 Null の場合はイントネーション用キャッシュキーのみを確認する。
+            // query が Null（またはイントネーション情報なし）の場合はプレーンテキストキーを確認する。
             let cache = app.cache.lock().unwrap();
-            let intonation_cached = app.line_intonations.get(i)
-                .and_then(|d| d.as_ref())
-                .filter(|d| !d.query.is_null())
-                .and_then(|d| App::intonation_cache_key(d.speaker_id, &d.query))
-                .map(|key| cache.contains_key(&key))
-                .unwrap_or(false);
-            if intonation_cached || cache.contains_key(line.as_str()) { "♪ " } else { "  " }
+            let is_cached = if let Some(ref key) = intonation_key {
+                cache.contains_key(key)
+            } else {
+                cache.contains_key(line.as_str())
+            };
+            if is_cached { "♪ " } else { "  " }
         };
         let intonation_mark = if app.line_intonations.get(i).and_then(|d| d.as_ref()).is_some() { "♬ " } else { "  " };
 
