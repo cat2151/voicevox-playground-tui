@@ -102,8 +102,8 @@ pub async fn run(app: &mut App) -> Result<()> {
                         KeyCode::Char('o') => app.enter_insert_below(),
                         KeyCode::Char('O') => app.enter_insert_above(),
                         KeyCode::Enter => {
-                            app.play_current().await;
-                            app.move_cursor(1).await;
+                            let count = app.take_count();
+                            app.move_cursor(count as i32).await;
                         }
                         KeyCode::Char(' ') => app.play_current().await,
                         KeyCode::Char('p') if app.pending_clipboard => app.paste_below_from_clipboard().await,
@@ -330,12 +330,12 @@ pub async fn run(app: &mut App) -> Result<()> {
                             app.help_key_buf.clear();
                             app.mode = Mode::Normal;
                         }
-                        // Enter: helpを終了して現在行を再生→下へ移動（NormalモードのEnterと同じ）
+                        // Enter: helpを終了して下へ移動（NormalモードのEnterと同じ）
                         KeyCode::Enter => {
                             app.help_key_buf.clear();
                             app.mode = Mode::Normal;
-                            app.play_current().await;
-                            app.move_cursor(1).await;
+                            let count = app.take_count();
+                            app.move_cursor(count as i32).await;
                         }
                         // Space・その他の文字キー: バッファに追記してハイライト更新・完全一致時に実行
                         _ => {
