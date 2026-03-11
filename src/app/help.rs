@@ -57,7 +57,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
     HelpEntry { key: "p",           canonical_key: "p",     desc: "ヤンクバッファを下にペースト", action: HelpAction::PasteBelow },
     HelpEntry { key: "Space",        canonical_key: " ",     desc: "現在行を再生",                 action: HelpAction::PlayCurrent },
     HelpEntry { key: ":tabnew",      canonical_key: ":tabnew", desc: "新しいタブを作成",             action: HelpAction::TabNew },
-    HelpEntry { key: "Enter",        canonical_key: "",      desc: "現在行を再生→下へ移動",        action: HelpAction::None },
+    HelpEntry { key: "Enter",        canonical_key: "",      desc: "下へ移動（j と同じ）",            action: HelpAction::None },
     HelpEntry { key: "n j/k",        canonical_key: "",      desc: "n行分移動（例: 5j）",           action: HelpAction::None },
     HelpEntry { key: "v",           canonical_key: "v",     desc: "イントネーション編集モードへ", action: HelpAction::IntonationMode },
     HelpEntry { key: "\"+P",        canonical_key: "\"+P",  desc: "クリップボードを上にペースト", action: HelpAction::PasteAboveClipboard },
