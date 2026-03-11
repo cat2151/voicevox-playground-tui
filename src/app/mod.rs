@@ -298,7 +298,7 @@ impl App {
 
     /// イントネーションキャッシュキーを生成する。
     /// シリアライズに失敗した場合は None を返す（キャッシュをスキップする）。
-    fn intonation_cache_key(speaker_id: u32, query: &serde_json::Value) -> Option<String> {
+    pub(crate) fn intonation_cache_key(speaker_id: u32, query: &serde_json::Value) -> Option<String> {
         serde_json::to_string(query).ok().map(|q| format!("intonation:{}:{}", speaker_id, q))
     }
 
