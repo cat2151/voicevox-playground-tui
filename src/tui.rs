@@ -90,7 +90,7 @@ pub async fn run(app: &mut App) -> Result<()> {
                             }
                             break;
                         }
-                        KeyCode::Char('j') | KeyCode::Down  => {
+                        KeyCode::Char('j') | KeyCode::Down | KeyCode::Enter => {
                             let count = app.take_count();
                             app.move_cursor(count as i32).await;
                         }
@@ -101,10 +101,6 @@ pub async fn run(app: &mut App) -> Result<()> {
                         KeyCode::Char('i') => app.enter_insert_current(),
                         KeyCode::Char('o') => app.enter_insert_below(),
                         KeyCode::Char('O') => app.enter_insert_above(),
-                        KeyCode::Enter => {
-                            let count = app.take_count();
-                            app.move_cursor(count as i32).await;
-                        }
                         KeyCode::Char(' ') => app.play_current().await,
                         KeyCode::Char('p') if app.pending_clipboard => app.paste_below_from_clipboard().await,
                         KeyCode::Char('P') if app.pending_clipboard => app.paste_above_from_clipboard().await,
@@ -307,8 +303,8 @@ pub async fn run(app: &mut App) -> Result<()> {
                             app.help_key_buf.clear();
                             app.mode = Mode::Normal;
                         }
-                        // hjkl・カーソルキー: helpを終了して対応するNormalモードの操作を実行
-                        KeyCode::Char('j') | KeyCode::Down => {
+                        // hjkl・カーソルキー・Enter: helpを終了して対応するNormalモードの操作を実行
+                        KeyCode::Char('j') | KeyCode::Down | KeyCode::Enter => {
                             app.help_key_buf.clear();
                             app.mode = Mode::Normal;
                             let count = app.take_count();
@@ -329,13 +325,6 @@ pub async fn run(app: &mut App) -> Result<()> {
                             // h はNormalモードでhelpを開くキーなので、終了のみ
                             app.help_key_buf.clear();
                             app.mode = Mode::Normal;
-                        }
-                        // Enter: helpを終了して下へ移動（NormalモードのEnterと同じ）
-                        KeyCode::Enter => {
-                            app.help_key_buf.clear();
-                            app.mode = Mode::Normal;
-                            let count = app.take_count();
-                            app.move_cursor(count as i32).await;
                         }
                         // Space・その他の文字キー: バッファに追記してハイライト更新・完全一致時に実行
                         _ => {
