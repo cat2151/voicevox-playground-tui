@@ -39,7 +39,7 @@ pub struct HelpEntry {
 /// NORMALモードのkeybind一覧（helpメニュー表示・実行用）。
 /// `action` を各エントリに直接持たせることで、並び替え・追加・削除しても
 /// 表示内容と実行アクションがズレない。
-/// 偶数インデックス＝左列（ナビゲーション／再生／モード系）、奇数インデックス＝右列（編集：挿入／削除／貼り付け等）。
+/// 偶数インデックス＝左列（ナビゲーション／再生系を優先）、奇数インデックス＝右列（編集：挿入／削除／貼り付け等）。
 /// `canonical_key` が空文字列のエントリはヘルプモードのキー入力では選択できない
 /// （hjkl・カーソルキー相当、または複合コマンドモード操作）。
 pub const HELP_ENTRIES: &[HelpEntry] = &[
@@ -57,8 +57,8 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
     HelpEntry { key: "p",           canonical_key: "p",     desc: "ヤンクバッファを下にペースト", action: HelpAction::PasteBelow },
     HelpEntry { key: "Space",        canonical_key: " ",     desc: "現在行を再生",                 action: HelpAction::PlayCurrent },
     HelpEntry { key: ":tabnew",      canonical_key: ":tabnew", desc: "新しいタブを作成",             action: HelpAction::TabNew },
-    HelpEntry { key: "v",           canonical_key: "v",     desc: "イントネーション編集モードへ", action: HelpAction::IntonationMode },
     HelpEntry { key: "Enter",        canonical_key: "",      desc: "下へ移動（j と同じ）",            action: HelpAction::None },
+    HelpEntry { key: "v",           canonical_key: "v",     desc: "イントネーション編集モードへ", action: HelpAction::IntonationMode },
     HelpEntry { key: "n j/k",        canonical_key: "",      desc: "n行分移動（例: 5j）",           action: HelpAction::None },
     HelpEntry { key: "\"+P",        canonical_key: "\"+P",  desc: "クリップボードを上にペースト", action: HelpAction::PasteAboveClipboard },
     HelpEntry { key: "q",           canonical_key: "q",     desc: "終了",                         action: HelpAction::Quit },
@@ -288,14 +288,6 @@ mod tests {
         let idx = HELP_ENTRIES.iter().position(|e| e.key == "n j/k")
             .expect("n j/kエントリがHELP_ENTRIESに存在すること");
         assert_eq!(idx % 2, 0, "n j/kエントリは左列（偶数インデックス）に表示されること");
-    }
-
-    #[test]
-    fn intonation_mode_entry_is_in_left_column() {
-        // IntonationModeエントリは左列（偶数インデックス、モード系）に配置されること
-        let idx = HELP_ENTRIES.iter().position(|e| e.action == HelpAction::IntonationMode)
-            .expect("IntonationModeエントリがHELP_ENTRIESに存在すること");
-        assert_eq!(idx % 2, 0, "IntonationModeエントリは左列（偶数インデックス）に表示されること");
     }
 
     #[test]
