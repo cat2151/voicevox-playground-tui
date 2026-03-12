@@ -57,8 +57,8 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
     HelpEntry { key: "p",           canonical_key: "p",     desc: "ヤンクバッファを下にペースト", action: HelpAction::PasteBelow },
     HelpEntry { key: "Space",        canonical_key: " ",     desc: "現在行を再生",                 action: HelpAction::PlayCurrent },
     HelpEntry { key: ":tabnew",      canonical_key: ":tabnew", desc: "新しいタブを作成",             action: HelpAction::TabNew },
-    HelpEntry { key: "Enter",        canonical_key: "",      desc: "下へ移動（j と同じ）",            action: HelpAction::None },
     HelpEntry { key: "v",           canonical_key: "v",     desc: "イントネーション編集モードへ", action: HelpAction::IntonationMode },
+    HelpEntry { key: "Enter",        canonical_key: "",      desc: "下へ移動（j と同じ）",            action: HelpAction::None },
     HelpEntry { key: "n j/k",        canonical_key: "",      desc: "n行分移動（例: 5j）",           action: HelpAction::None },
     HelpEntry { key: "\"+P",        canonical_key: "\"+P",  desc: "クリップボードを上にペースト", action: HelpAction::PasteAboveClipboard },
     HelpEntry { key: "q",           canonical_key: "q",     desc: "終了",                         action: HelpAction::Quit },
@@ -280,6 +280,22 @@ mod tests {
             .expect("MoveUpエントリがHELP_ENTRIESに存在すること");
         assert!(j_entry.canonical_key.is_empty(), "jエントリのcanonical_keyは空");
         assert!(k_entry.canonical_key.is_empty(), "kエントリのcanonical_keyは空");
+    }
+
+    #[test]
+    fn n_jk_entry_is_in_left_column() {
+        // "n j/k" は左列（偶数インデックス）に配置されること（qの上に表示するため）
+        let idx = HELP_ENTRIES.iter().position(|e| e.key == "n j/k")
+            .expect("n j/kエントリがHELP_ENTRIESに存在すること");
+        assert_eq!(idx % 2, 0, "n j/kエントリは左列（偶数インデックス）に表示されること");
+    }
+
+    #[test]
+    fn intonation_mode_entry_is_in_left_column() {
+        // IntonationModeエントリは左列（偶数インデックス、モード系）に配置されること
+        let idx = HELP_ENTRIES.iter().position(|e| e.action == HelpAction::IntonationMode)
+            .expect("IntonationModeエントリがHELP_ENTRIESに存在すること");
+        assert_eq!(idx % 2, 0, "IntonationModeエントリは左列（偶数インデックス）に表示されること");
     }
 
     #[test]
