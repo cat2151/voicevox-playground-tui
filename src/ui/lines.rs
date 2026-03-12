@@ -93,7 +93,7 @@ pub(super) fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
         ListItem::new(text).style(style)
     }).collect();
 
-    let title = match app.mode {
+    let mode_span = match app.mode {
         Mode::Normal | Mode::Command | Mode::Help => {
             if focused {
                 Span::styled(" [NORMAL] ", Style::default().fg(GREEN).bold())
@@ -115,6 +115,24 @@ pub(super) fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
                 Span::styled(" [NORMAL] ", Style::default().fg(DIM))
             }
         }
+    };
+    let title = if app.tabs.len() > 1 {
+        let mut spans = vec![mode_span];
+        for i in 0..app.tabs.len() {
+            let label = format!(" {} ", i + 1);
+            if i == app.active_tab {
+                if focused {
+                    spans.push(Span::styled(label, Style::default().fg(BG).bg(YELLOW).bold()));
+                } else {
+                    spans.push(Span::styled(label, Style::default().fg(DIM).bg(BG)));
+                }
+            } else {
+                spans.push(Span::styled(label, Style::default().fg(DIM).bg(BG)));
+            }
+        }
+        Line::from(spans)
+    } else {
+        Line::from(vec![mode_span])
     };
     let border_color = if !focused {
         DIM
@@ -214,7 +232,7 @@ pub(super) fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     let hint = match app.mode {
-        Mode::Normal => "j/k/Enter:move  i:edit  o/O:newline  dd:delete  p/P:paste  \"+p/\"+P:clip-paste  zm/zr:fold  Space:play  v:intonation  h:help  l:tab-next  q:quit",
+        Mode::Normal => "h:help  j/k/Enter:move  i:edit  o/O:newline  dd:delete  p/P:paste  \"+p/\"+P:clip-paste  zm/zr:fold  Space:play  v:intonation  l:tab-next  q:quit",
         Mode::Insert => "^A:home  ^E:end  ^K:kill  ^W:del-word  Esc/Enter:confirm",
         Mode::Command => "",
         Mode::Intonation => "",

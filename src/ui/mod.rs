@@ -59,33 +59,15 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         return;
     }
 
-    let show_tabbar = app.tabs.len() > 1;
+    let chunks = Layout::vertical([
+        Constraint::Min(3),
+        Constraint::Length(1),
+    ])
+    .split(f.area());
 
-    let chunks = if show_tabbar {
-        Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Min(3),
-            Constraint::Length(1),
-        ])
-        .split(f.area())
-    } else {
-        Layout::vertical([
-            Constraint::Min(3),
-            Constraint::Length(1),
-        ])
-        .split(f.area())
-    };
-
-    if show_tabbar {
-        app.visible_lines = (chunks[1].height as usize).saturating_sub(2);
-        lines::render_tab_bar(f, app, chunks[0]);
-        lines::render_lines(f, app, chunks[1]);
-        lines::render_status(f, app, chunks[2]);
-    } else {
-        app.visible_lines = (chunks[0].height as usize).saturating_sub(2);
-        lines::render_lines(f, app, chunks[0]);
-        lines::render_status(f, app, chunks[1]);
-    }
+    app.visible_lines = (chunks[0].height as usize).saturating_sub(2);
+    lines::render_lines(f, app, chunks[0]);
+    lines::render_status(f, app, chunks[1]);
 
     // ヘルプモードはノーマルレイアウトの上にオーバーレイ表示する
     if app.mode == Mode::Help {
