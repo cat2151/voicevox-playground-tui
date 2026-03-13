@@ -304,7 +304,8 @@ impl App {
 
     async fn fetch_and_play(&mut self, index: usize) {
         if index >= self.lines.len() || self.lines[index].trim().is_empty() { return; }
-        let text = self.lines[index].clone();
+        // 折りたたみ用の行頭spaceは音声合成に影響しないため、trim_startしてcacheキー・fetchリクエストに使う
+        let text = self.lines[index].trim_start().to_owned();
 
         // イントネーション編集済みの場合はキャッシュを確認し、あれば即再生、なければ合成してキャッシュに保存する
         if let Some(data) = self.line_intonations.get(index).and_then(|d| d.as_ref()).cloned() {
@@ -430,12 +431,13 @@ impl App {
                 .and_then(|d| d.as_ref())
                 .filter(|d| !d.query.is_null())
                 .and_then(|d| Self::intonation_cache_key(d.speaker_id, &d.query));
-            intonation_key.unwrap_or_else(|| self.lines.get(self.cursor).cloned().unwrap_or_default())
+            // 折りたたみ用の行頭spaceはcacheキーから除外する
+            intonation_key.unwrap_or_else(|| self.lines.get(self.cursor).map(|l| l.trim_start().to_owned()).unwrap_or_default())
         };
         // 折りたたみ時は表示行のみをprefetch対象とする
         let target_texts: Vec<String> = if self.folded {
             let visible_indices = self.visible_line_indices();
-            let visible_texts: Vec<String> = visible_indices.iter().map(|&i| self.lines[i].clone()).collect();
+            let visible_texts: Vec<String> = visible_indices.iter().map(|&i| self.lines[i].trim_start().to_owned()).collect();
             let vis_cursor = utils::nearest_vis_pos(self.cursor, &visible_indices);
             background_prefetch::compute_prefetch_targets(vis_cursor, self.visible_lines, &visible_texts)
                 .into_iter()
@@ -447,7 +449,7 @@ impl App {
                 self.cursor, self.visible_lines, &self.lines,
             )
             .into_iter()
-            .map(|idx| self.lines[idx].clone())
+            .map(|idx| self.lines[idx].trim_start().to_owned())
             .collect()
         };
         self.bg_prefetch_handle = Some(background_prefetch::spawn_background_prefetch(
