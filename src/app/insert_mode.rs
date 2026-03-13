@@ -107,7 +107,8 @@ impl App {
     /// Insert中の文字変化ごとに呼ぶ（debounce prefetch）
     pub async fn on_edit_buf_changed(&mut self) {
         let raw  = self.textarea.lines().first().cloned().unwrap_or_default();
-        let text = tag::expand_id_tags(&raw);  // [N]展開後のキーでfetchする
+        // [N]展開後、折りたたみ用の行頭spaceを除いたキーでfetchする
+        let text = tag::expand_id_tags(&raw).trim_start().to_owned();
         if text.trim().is_empty() { return; }
         let _ = self.fetch_tx.send(FetchRequest { text, play_after: false }).await;
     }
@@ -125,7 +126,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::{App, IntonationLineData};
+    use crate::app::IntonationLineData;
     use crate::speakers;
 
     fn setup() { speakers::init_test_table(); }
