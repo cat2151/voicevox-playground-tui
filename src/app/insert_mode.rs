@@ -81,9 +81,10 @@ impl App {
         let split_lines = tag::split_by_ctx_change(&text);
         if self.cursor < self.lines.len() {
             // split_by_ctx_change は常に1要素以上を返す
-            // テキストが変わった場合のみ現在行のイントネーションをクリアする
+            // テキストが変わった場合のみ現在行のイントネーションをクリアする。
+            // 折りたたみ用の行頭spaceは音声合成に影響しないため、trim_startして比較する。
             if let Some(first_line) = split_lines.first() {
-                if &self.lines[self.cursor] != first_line {
+                if self.lines[self.cursor].trim_start() != first_line.trim_start() {
                     self.line_intonations[self.cursor] = None;
                 }
                 self.lines[self.cursor] = first_line.clone();
@@ -118,5 +119,81 @@ impl App {
         } else {
             &self.status_msg
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::{App, IntonationLineData};
+    use crate::speakers;
+
+    fn setup() { speakers::init_test_table(); }
+
+    fn make_app_with_line(line: &str) -> App {
+        App::new(vec![line.to_string()])
+    }
+
+    fn dummy_intonation() -> IntonationLineData {
+        IntonationLineData {
+            query:      serde_json::Value::Null,
+            mora_texts: vec!["ず".to_string(), "ん".to_string()],
+            pitches:    vec![5.9, 6.0],
+            speaker_id: 3,
+        }
+    }
+
+    /// 行頭spaceを追加しただけではイントネーションデータが消えないことを確認する
+    #[tokio::test]
+    async fn commit_insert_preserves_intonation_when_adding_leading_space() {
+        setup();
+        let mut app = make_app_with_line("ずんだもん");
+        app.cursor = 0;
+        app.line_intonations[0] = Some(dummy_intonation());
+
+        // 行頭にspaceを追加して確定する
+        app.textarea = super::super::utils::make_textarea(" ずんだもん".to_string());
+        app.commit_insert().await;
+
+        assert!(
+            app.line_intonations[0].is_some(),
+            "行頭spaceを追加しただけでイントネーションデータが消えてはいけない"
+        );
+    }
+
+    /// 行頭spaceを削除しただけではイントネーションデータが消えないことを確認する
+    #[tokio::test]
+    async fn commit_insert_preserves_intonation_when_removing_leading_space() {
+        setup();
+        let mut app = make_app_with_line(" ずんだもん");
+        app.cursor = 0;
+        app.line_intonations[0] = Some(dummy_intonation());
+
+        // 行頭のspaceを削除して確定する
+        app.textarea = super::super::utils::make_textarea("ずんだもん".to_string());
+        app.commit_insert().await;
+
+        assert!(
+            app.line_intonations[0].is_some(),
+            "行頭spaceを削除しただけでイントネーションデータが消えてはいけない"
+        );
+    }
+
+    /// テキスト本文が変わった場合はイントネーションデータがクリアされることを確認する
+    #[tokio::test]
+    async fn commit_insert_clears_intonation_when_text_content_changes() {
+        setup();
+        let mut app = make_app_with_line("ずんだもん");
+        app.cursor = 0;
+        app.line_intonations[0] = Some(dummy_intonation());
+
+        // テキスト本文を変更して確定する
+        app.textarea = super::super::utils::make_textarea("めたん".to_string());
+        app.commit_insert().await;
+
+        assert!(
+            app.line_intonations[0].is_none(),
+            "テキスト本文が変わった場合はイントネーションデータがクリアされるべき"
+        );
     }
 }
