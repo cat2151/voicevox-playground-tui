@@ -58,7 +58,8 @@ pub(super) fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
             let is_cached = if let Some(ref key) = intonation_key {
                 cache.contains_key(key)
             } else {
-                cache.contains_key(line.as_str())
+                // 折りたたみ用の行頭spaceはcacheキーから除外する（fetch_and_playと合わせる）
+                cache.contains_key(line.trim_start())
             };
             if is_cached { "♪ " } else { "  " }
         };
