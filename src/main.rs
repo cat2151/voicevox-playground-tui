@@ -28,34 +28,24 @@ enum StartupMode {
 }
 
 fn startup_mode(args: &[String]) -> StartupMode {
-    if args.len() == 2 && args[1] == "update" {
-        StartupMode::Update
-    } else if args.iter().any(|arg| arg == "--clipboard") {
-        StartupMode::Clipboard
-    } else {
-        StartupMode::Normal
+    match args {
+        [_, command] if command == "update" => StartupMode::Update,
+        _ if args.iter().any(|arg| arg == "--clipboard") => StartupMode::Clipboard,
+        _ => StartupMode::Normal,
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
-    match startup_mode(&args) {
+    let mode = startup_mode(&args);
+
+    match mode {
         StartupMode::Update => {
             updater::run_foreground_update().await?;
             return Ok(());
         }
-        StartupMode::Clipboard => {
-            // エンジンが起動していなければ自動起動する
-            engine_launcher::ensure_engine_running(BASE_URLS).await?;
-
-            // 起動時に speaker テーブルをAPIから取得する（ハードコーディングなし）
-            speakers::load(BASE_URLS).await?;
-
-            // --clipboard: クリップボードを読み上げて終了（history.txtには追加しない）
-            return clipboard::run().await;
-        }
-        StartupMode::Normal => {}
+        StartupMode::Clipboard | StartupMode::Normal => {}
     }
 
     // エンジンが起動していなければ自動起動する
@@ -63,6 +53,11 @@ async fn main() -> Result<()> {
 
     // 起動時に speaker テーブルをAPIから取得する（ハードコーディングなし）
     speakers::load(BASE_URLS).await?;
+
+    if mode == StartupMode::Clipboard {
+        // --clipboard: クリップボードを読み上げて終了（history.txtには追加しない）
+        return clipboard::run().await;
+    }
 
     let (all_lines, all_intonations) = history::load_all()?;
     let mut app = App::new_with_tabs(all_lines, all_intonations);
