@@ -20,7 +20,7 @@ const BASE_URLS: &[&str] = &[
     "http://localhost:50121",   // VOICEVOX nemo
 ];
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StartupMode {
     Normal,
     Clipboard,
