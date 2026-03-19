@@ -2,6 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use anyhow::Result;
+use serde::Deserialize;
 
 const CONFIG_FILE_NAME: &str = "config.toml";
 
@@ -22,60 +23,32 @@ pub fn load_or_create() -> Result<EngineConfig> {
     }
 
     let content = fs::read_to_string(&path)?;
-    Ok(parse_config_toml(&content))
+    Ok(parse_config_toml(&content)?)
 }
 
 fn default_config_toml() -> String {
-    [
-        "# VOICEVOX executable base paths (optional)",
-        "# voicevox_path = \"<your voicevox path>\"",
-        "# voicevox_nemo_path = \"<your voicevox nemo path>\"",
-        "",
-    ]
-    .join("\n")
+    r#"# VOICEVOX executable base paths (optional)
+# voicevox_path = "<your voicevox path>"
+# voicevox_nemo_path = "<your voicevox nemo path>"
+"#
+    .to_string()
 }
 
-fn parse_config_toml(content: &str) -> EngineConfig {
-    let mut config = EngineConfig::default();
-    for raw_line in content.lines() {
-        let line = raw_line.split('#').next().unwrap_or("").trim();
-        if line.is_empty() {
-            continue;
-        }
-        let Some((key, value)) = line.split_once('=') else {
-            continue;
-        };
-
-        let key = key.trim();
-        let value = value.trim();
-        let Some(value) = parse_quoted_toml_string(value) else {
-            continue;
-        };
-
-        if value.is_empty() {
-            continue;
-        }
-
-        match key {
-            "voicevox_path" => config.voicevox_path = Some(PathBuf::from(value)),
-            "voicevox_nemo_path" => config.voicevox_nemo_path = Some(PathBuf::from(value)),
-            _ => {}
-        }
+fn parse_config_toml(content: &str) -> Result<EngineConfig> {
+    #[derive(Deserialize)]
+    struct RawConfig {
+        voicevox_path: Option<String>,
+        voicevox_nemo_path: Option<String>,
     }
-    config
-}
 
-fn parse_quoted_toml_string(value: &str) -> Option<String> {
-    if value.len() < 2 {
-        return None;
-    }
-    if value.starts_with('"') && value.ends_with('"') {
-        return Some(value[1..value.len() - 1].to_string());
-    }
-    if value.starts_with('\'') && value.ends_with('\'') {
-        return Some(value[1..value.len() - 1].to_string());
-    }
-    None
+    let raw: RawConfig = toml::from_str(content)?;
+    Ok(EngineConfig {
+        voicevox_path: raw.voicevox_path.filter(|s| !s.is_empty()).map(PathBuf::from),
+        voicevox_nemo_path: raw
+            .voicevox_nemo_path
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from),
+    })
 }
 
 pub fn configured_executable_candidates(config: &EngineConfig) -> Vec<PathBuf> {
@@ -109,7 +82,8 @@ mod tests {
 voicevox_path = "/opt/voicevox"
 voicevox_nemo_path = "/opt/voicevox-nemo"
 "#,
-        );
+        )
+        .unwrap();
         assert_eq!(config.voicevox_path, Some(PathBuf::from("/opt/voicevox")));
         assert_eq!(
             config.voicevox_nemo_path,
@@ -118,14 +92,36 @@ voicevox_nemo_path = "/opt/voicevox-nemo"
     }
 
     #[test]
-    fn parse_config_toml_ignores_comments_and_invalid_values() {
+    fn parse_config_toml_supports_single_quoted_paths() {
         let config = parse_config_toml(
             r#"
-# voicevox_path = "/ignored"
-voicevox_path = /invalid
+voicevox_path = '/opt/voicevox'
+voicevox_nemo_path = '/opt/voicevox-nemo'
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.voicevox_path, Some(PathBuf::from("/opt/voicevox")));
+        assert_eq!(
+            config.voicevox_nemo_path,
+            Some(PathBuf::from("/opt/voicevox-nemo"))
+        );
+    }
+
+    #[test]
+    fn parse_config_toml_returns_error_for_invalid_toml() {
+        let err = parse_config_toml("voicevox_path = /invalid").err();
+        assert!(err.is_some());
+    }
+
+    #[test]
+    fn parse_config_toml_empty_strings_are_treated_as_none() {
+        let config = parse_config_toml(
+            r#"
+voicevox_path = ""
 voicevox_nemo_path = ""
 "#,
-        );
+        )
+        .unwrap();
         assert_eq!(config.voicevox_path, None);
         assert_eq!(config.voicevox_nemo_path, None);
     }

@@ -8,6 +8,7 @@ use crate::config::EngineConfig;
 
 /// エンジンが応答するまで待つ最大秒数
 const MAX_WAIT_SECS: u64 = 60;
+const DEFAULT_VOICEVOX_URL: &str = "http://localhost:50021";
 
 /// ポーリング間隔（ミリ秒）
 const POLL_INTERVAL_MS: u64 = 1000;
@@ -131,6 +132,27 @@ async fn wait_for_engine(base_url: &str) -> Result<()> {
     }
 }
 
+fn select_wait_url_for_engine<'a>(
+    base_urls: &'a [&'a str],
+    config: &EngineConfig,
+    exe: &std::path::Path,
+) -> &'a str {
+    let primary_url = base_urls.first().copied().unwrap_or(DEFAULT_VOICEVOX_URL);
+    let is_nemo_path = config
+        .voicevox_nemo_path
+        .as_ref()
+        .is_some_and(|p| exe.starts_with(p));
+    let is_voicevox_path = config
+        .voicevox_path
+        .as_ref()
+        .is_some_and(|p| exe.starts_with(p));
+    if is_nemo_path && !is_voicevox_path {
+        base_urls.get(1).copied().unwrap_or(primary_url)
+    } else {
+        primary_url
+    }
+}
+
 /// エンジンが起動していなければ自動起動し、起動完了まで待機する。
 /// base_urlsのうち1つでも起動済みであれば何もしない。
 /// 1つも起動していない場合はVOICEVOXを自動起動し、base_urls[0]で待機する。
@@ -141,26 +163,13 @@ pub async fn ensure_engine_running(base_urls: &[&str]) -> Result<()> {
         }
     }
 
-    let primary_url = base_urls.first().copied().unwrap_or("http://localhost:50021");
     let config = crate::config::load_or_create()?;
     let exe = find_voicevox_executable(&config).ok_or_else(|| {
         anyhow::anyhow!(
             "VOICEVOXの実行ファイルが見つかりませんでした。\nVOICEVOXをインストールしてから再度お試しください。"
         )
     })?;
-    let wait_url = if config
-        .voicevox_nemo_path
-        .as_ref()
-        .is_some_and(|p| exe.starts_with(p))
-        && !config
-            .voicevox_path
-            .as_ref()
-            .is_some_and(|p| exe.starts_with(p))
-    {
-        base_urls.get(1).copied().unwrap_or(primary_url)
-    } else {
-        primary_url
-    };
+    let wait_url = select_wait_url_for_engine(base_urls, &config, &exe);
 
     eprintln!("VOICEVOXエンジンを起動します: {}", exe.display());
     launch_voicevox(&exe)?;
