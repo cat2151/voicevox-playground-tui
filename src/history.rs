@@ -22,7 +22,7 @@ pub struct SessionState {
     pub tabs: Vec<TabSessionState>,
 }
 
-fn history_dir() -> PathBuf {
+pub fn history_dir() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("voicevox-playground-tui")
