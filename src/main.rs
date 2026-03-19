@@ -1,6 +1,7 @@
 mod app;
 mod background_prefetch;
 mod clipboard;
+mod config;
 mod engine_launcher;
 mod fetch;
 mod history;

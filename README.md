@@ -24,6 +24,15 @@ To use this, please start the VOICEVOX engine.
 <your VOICEVOX directory>/vv-engine/run
 ```
 
+If VOICEVOX is installed in a custom location, set it in:
+
+`C:/Users/<your-name>/AppData/Local/voicevox-playground-tui/config.toml`
+
+```toml
+voicevox_path = "<your voicevox path>"
+voicevox_nemo_path = "<your voicevox nemo path>"
+```
+
 ## Usage
 
 ```
