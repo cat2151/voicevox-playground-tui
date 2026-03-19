@@ -166,7 +166,11 @@ pub async fn ensure_engine_running(base_urls: &[&str]) -> Result<()> {
     let config = crate::config::load_or_create()?;
     let exe = find_voicevox_executable(&config).ok_or_else(|| {
         anyhow::anyhow!(
-            "VOICEVOXの実行ファイルが見つかりませんでした。\nVOICEVOXをインストールしてから再度お試しください。"
+            "VOICEVOXの実行ファイルが見つかりませんでした。\n\
+VOICEVOXのインストール先、または設定ファイルを確認してください。\n\
+config.toml: {}\n\
+設定キー: voicevox_path / voicevox_nemo_path",
+            crate::config::config_path().display()
         )
     })?;
     let wait_url = select_wait_url_for_engine(base_urls, &config, &exe);

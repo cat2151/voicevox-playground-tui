@@ -12,18 +12,24 @@ pub struct EngineConfig {
     pub voicevox_nemo_path: Option<PathBuf>,
 }
 
+pub fn config_path() -> PathBuf {
+    crate::history::history_dir().join(CONFIG_FILE_NAME)
+}
+
 pub fn load_or_create() -> Result<EngineConfig> {
     let dir = crate::history::history_dir();
     fs::create_dir_all(&dir)?;
-    let path = dir.join(CONFIG_FILE_NAME);
+    let path = config_path();
 
     if !path.exists() {
         fs::write(&path, default_config_toml())?;
         return Ok(EngineConfig::default());
     }
 
-    let content = fs::read_to_string(&path)?;
-    Ok(parse_config_toml(&content)?)
+    let content = fs::read_to_string(&path)
+        .map_err(|e| anyhow::anyhow!("config.toml 読み込み失敗: {} ({})", path.display(), e))?;
+    parse_config_toml(&content)
+        .map_err(|e| anyhow::anyhow!("config.toml のパース失敗: {} ({})", path.display(), e))
 }
 
 fn default_config_toml() -> String {
