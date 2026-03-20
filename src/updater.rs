@@ -126,7 +126,7 @@ fn spawn_updater_process(relaunch_command: Option<&str>) -> Result<()> {
         .to_str()
         .ok_or_else(|| anyhow::anyhow!("Updater script path contains invalid UTF-8"))?;
     std::process::Command::new("cmd")
-        .args(["/C", "start", "", script_str])
+        .args(["/C", "start", "vpt updater", script_str])
         .spawn()?;
     Ok(())
 }
