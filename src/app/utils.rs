@@ -6,9 +6,7 @@ pub(super) fn compress_trailing_empty(mut lines: Vec<String>) -> Vec<String> {
     while lines.len() > 1 && lines.last().map(|l| l.trim().is_empty()).unwrap_or(false) {
         lines.pop();
     }
-    if lines.is_empty() {
-        lines.push(String::new());
-    }
+    if lines.is_empty() { lines.push(String::new()); }
     if lines.last().map(|l| !l.trim().is_empty()).unwrap_or(false) {
         lines.push(String::new());
     }
@@ -24,12 +22,10 @@ pub(super) fn make_textarea(initial: String) -> TextArea<'static> {
 /// 表示行インデックスリスト内で `cursor`（実行インデックス）に最も近い位置を返す。
 /// `cursor` が `visible` に含まれる場合はその位置、含まれない場合は距離が最小の位置を返す。
 pub(super) fn nearest_vis_pos(cursor: usize, visible: &[usize]) -> usize {
-    visible
-        .iter()
+    visible.iter()
         .position(|&i| i == cursor)
         .unwrap_or_else(|| {
-            visible
-                .iter()
+            visible.iter()
                 .enumerate()
                 .min_by_key(|(_, &i)| {
                     let diff = i as isize - cursor as isize;
@@ -67,12 +63,7 @@ mod tests {
 
     #[test]
     fn compress_multiple_trailing_empty_lines_collapsed_to_one() {
-        let input = vec![
-            "hello".to_string(),
-            "".to_string(),
-            "".to_string(),
-            "".to_string(),
-        ];
+        let input = vec!["hello".to_string(), "".to_string(), "".to_string(), "".to_string()];
         let result = compress_trailing_empty(input);
         assert_eq!(result, vec!["hello", ""]);
     }

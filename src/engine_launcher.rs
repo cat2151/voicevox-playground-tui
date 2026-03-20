@@ -16,7 +16,11 @@ const POLL_INTERVAL_MS: u64 = 1000;
 /// 指定されたクライアントを使ってVOICEVOXエンジンが起動しているか確認する。
 /// /speakers が 2xx を返したときのみ true を返す。
 async fn check_engine_with_client(client: &reqwest::Client, base_url: &str) -> bool {
-    match client.get(format!("{base_url}/speakers")).send().await {
+    match client
+        .get(format!("{base_url}/speakers"))
+        .send()
+        .await
+    {
         Ok(resp) => resp.status().is_success(),
         Err(_) => false,
     }
