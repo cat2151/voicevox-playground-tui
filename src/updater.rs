@@ -85,13 +85,16 @@ fn install_command() -> String {
 
 #[cfg(any(target_os = "windows", test))]
 fn update_bat_content(relaunch_command: Option<&str>) -> String {
-    let mut script = format!(
-        "@echo off\r\ntimeout /t 3 /nobreak >nul\r\n{}\r\n",
-        install_command()
-    );
-    if let Some(command) = relaunch_command {
-        script.push_str(command);
-        script.push_str("\r\n");
+    let install = install_command();
+    let mut script = String::from("@echo off\r\ntimeout /t 3 /nobreak >nul\r\n");
+    match relaunch_command {
+        Some(command) => {
+            script.push_str(&format!("{install} && start \"\" /b {command}\r\n"));
+        }
+        None => {
+            script.push_str(&install);
+            script.push_str("\r\n");
+        }
     }
     script.push_str("del \"%~f0\"\r\n");
     script
@@ -213,13 +216,13 @@ mod tests {
     #[test]
     fn self_update_bat_does_not_restart_vpt() {
         let bat = update_bat_content(None);
-        assert!(!bat.contains("\r\nvpt\r\n"));
+        assert!(!bat.contains("start \"\" /b vpt"));
     }
 
     #[test]
-    fn foreground_update_bat_restarts_vpt_and_self_deletes() {
+    fn foreground_update_bat_restarts_vpt_only_after_install_succeeds() {
         let bat = update_bat_content(Some("vpt"));
-        assert!(bat.contains("\r\nvpt\r\n"));
+        assert!(bat.contains("&& start \"\" /b vpt"));
         assert!(bat.contains("del \"%~f0\""));
         assert!(!bat.contains("(goto)"));
     }
