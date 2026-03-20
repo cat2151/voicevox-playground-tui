@@ -84,7 +84,11 @@ vpt
 
 ## Updating
 
-- To update, simply run the same installation command.
+- To update, run `vpt update` or the same installation command.
+
+```
+vpt update
+```
 
 ```
 cargo install --force --git https://github.com/cat2151/voicevox-playground-tui

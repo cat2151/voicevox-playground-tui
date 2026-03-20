@@ -70,7 +70,11 @@ vpt
 - キャッシュはオンメモリ（プロセス終了で消える）
 
 ## アップデート
-- アップデートしたいときも、インストールと同じコマンドを実行すればOK
+- アップデートしたいときは `vpt update` を実行するか、インストールと同じコマンドを実行すればOK
+
+```
+vpt update
+```
 
 ```
 cargo install --force --git https://github.com/cat2151/voicevox-playground-tui
