@@ -17,8 +17,8 @@ use anyhow::Result;
 use app::{App, UpdateAction};
 
 const BASE_URLS: &[&str] = &[
-    "http://localhost:50021",   // VOICEVOX
-    "http://localhost:50121",   // VOICEVOX nemo
+    "http://localhost:50021", // VOICEVOX
+    "http://localhost:50121", // VOICEVOX nemo
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,7 +43,7 @@ async fn main() -> Result<()> {
 
     match mode {
         StartupMode::Update => {
-            updater::run_foreground_update().await?;
+            updater::run_self_update().await?;
             return Ok(());
         }
         StartupMode::Clipboard | StartupMode::Normal => {}

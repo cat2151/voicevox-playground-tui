@@ -69,9 +69,7 @@ fn format_with_pitches(text: &str, pitches: &[f64]) -> String {
 /// 指定タブの履歴ファイルをロードし、行テキストとイントネーションデータを返す。
 /// 各行末尾の `\t{"pitches":[...]}` サフィックスからイントネーションを復元する。
 /// ファイルがなければ None を返す。
-fn load_tab(
-    tab_index: usize,
-) -> Result<Option<(Vec<String>, Vec<Option<IntonationLineData>>)>> {
+fn load_tab(tab_index: usize) -> Result<Option<(Vec<String>, Vec<Option<IntonationLineData>>)>> {
     let path = history_path_for_tab(tab_index);
     if !path.exists() {
         return Ok(None);
@@ -84,7 +82,7 @@ fn load_tab(
     if raw_lines.is_empty() {
         return Ok(Some((vec![String::new()], vec![None])));
     }
-    let mut lines       = Vec::with_capacity(raw_lines.len());
+    let mut lines = Vec::with_capacity(raw_lines.len());
     let mut intonations = Vec::with_capacity(raw_lines.len());
     for raw in &raw_lines {
         let (text, pitches_opt) = split_pitches_suffix(raw);
@@ -92,7 +90,7 @@ fn load_tab(
         intonations.push(pitches_opt.map(|pitches| IntonationLineData {
             // query = Null は「history.txtから復元したpitches-only状態」を表すセンチネル値。
             // 再生・イントネーション編集時にAPIからaudio_queryを遅延取得して完全なデータに昇格させる。
-            query:      serde_json::Value::Null,
+            query: serde_json::Value::Null,
             mora_texts: Vec::new(),
             pitches,
             speaker_id: 0,
@@ -106,7 +104,7 @@ fn load_tab(
 /// tab1はhistory.txt、tab2はhistory2.txt … と連番で存在する分だけロードする。
 /// ファイルが1つもなければ空行1つのタブを1つ返す。
 pub fn load_all() -> Result<(Vec<Vec<String>>, Vec<Vec<Option<IntonationLineData>>>)> {
-    let mut all_lines       = Vec::new();
+    let mut all_lines = Vec::new();
     let mut all_intonations = Vec::new();
     let mut tab_index = 0;
     loop {
@@ -133,7 +131,7 @@ pub fn load_all() -> Result<(Vec<Vec<String>>, Vec<Vec<Option<IntonationLineData
 /// イントネーションデータがある行は末尾に `\t{"pitches":[...]}` を付加する。
 /// 現在のタブ数を超えて残っている余分なhistoryファイルは削除する。
 pub fn save_all(
-    all_tab_lines:       &[Vec<String>],
+    all_tab_lines: &[Vec<String>],
     all_tab_intonations: &[Vec<Option<IntonationLineData>>],
 ) -> Result<()> {
     let dir = history_dir();
@@ -295,9 +293,18 @@ mod tests {
         let state = SessionState {
             active_tab: 2,
             tabs: vec![
-                TabSessionState { cursor: 5, folded: false },
-                TabSessionState { cursor: 0, folded: true },
-                TabSessionState { cursor: 3, folded: false },
+                TabSessionState {
+                    cursor: 5,
+                    folded: false,
+                },
+                TabSessionState {
+                    cursor: 0,
+                    folded: true,
+                },
+                TabSessionState {
+                    cursor: 3,
+                    folded: false,
+                },
             ],
         };
         let json = serde_json::to_string(&state).unwrap();

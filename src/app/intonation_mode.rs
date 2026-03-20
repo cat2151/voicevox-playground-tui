@@ -31,9 +31,13 @@ impl App {
     pub async fn enter_intonation_mode(&mut self) {
         self.reset_pending_prefixes();
         let idx = self.cursor;
-        if idx >= self.lines.len() { return; }
+        if idx >= self.lines.len() {
+            return;
+        }
         let line = self.lines[idx].clone();
-        if line.trim().is_empty() { return; }
+        if line.trim().is_empty() {
+            return;
+        }
 
         // タグ解析してセグメント情報を取得する
         let mut segments = tag::parse_line(&line);
@@ -61,19 +65,20 @@ impl App {
                     Some(resolved) => {
                         self.intonation_speaker_id = resolved.speaker_id;
                         self.intonation_mora_texts = resolved.mora_texts;
-                        self.intonation_pitches    = resolved.pitches;
-                        self.intonation_query      = resolved.query;
+                        self.intonation_pitches = resolved.pitches;
+                        self.intonation_query = resolved.query;
                     }
                     None => {
-                        self.status_msg = String::from("[intonation] audio_query の取得またはモーラ抽出に失敗");
+                        self.status_msg =
+                            String::from("[intonation] audio_query の取得またはモーラ抽出に失敗");
                         return;
                     }
                 }
             } else {
                 self.intonation_speaker_id = data.speaker_id;
                 self.intonation_mora_texts = data.mora_texts;
-                self.intonation_pitches    = data.pitches;
-                self.intonation_query      = data.query;
+                self.intonation_pitches = data.pitches;
+                self.intonation_query = data.query;
             }
         } else {
             // APIからaudio_queryを取得する
@@ -87,8 +92,8 @@ impl App {
                     }
                     self.intonation_speaker_id = speaker_id;
                     self.intonation_mora_texts = mora_texts;
-                    self.intonation_pitches    = pitches;
-                    self.intonation_query      = query;
+                    self.intonation_pitches = pitches;
+                    self.intonation_query = query;
                 }
                 Err(e) => {
                     self.status_msg = format!("[audio_query error] {}", e);
@@ -97,20 +102,21 @@ impl App {
             }
         }
 
-        self.intonation_cursor   = 0;
-        self.intonation_num_buf  = String::new();
+        self.intonation_cursor = 0;
+        self.intonation_num_buf = String::new();
         self.intonation_debounce = None;
         self.intonation_initial_pitches = self.intonation_pitches.clone();
-        self.mode                = Mode::Intonation;
-        self.status_msg          = String::from("-- INTONATION --");
+        self.mode = Mode::Intonation;
+        self.status_msg = String::from("-- INTONATION --");
     }
 
     /// h/←・l/→: 選択モーラを左右に移動する（delta=-1で左、+1で右）。
     pub fn intonation_move_cursor(&mut self, delta: i32) {
         let len = self.intonation_pitches.len();
-        if len == 0 { return; }
-        let new_cursor = (self.intonation_cursor as i32 + delta)
-            .clamp(0, len as i32 - 1) as usize;
+        if len == 0 {
+            return;
+        }
+        let new_cursor = (self.intonation_cursor as i32 + delta).clamp(0, len as i32 - 1) as usize;
         self.intonation_cursor = new_cursor;
     }
 
@@ -122,7 +128,9 @@ impl App {
 
     /// a-z/A-Z: 指定モーラのpitchをdelta分増減し、デバウンスタイマーをセットする。
     pub fn intonation_adjust_pitch(&mut self, mora_idx: usize, delta: f64) {
-        if mora_idx >= self.intonation_pitches.len() { return; }
+        if mora_idx >= self.intonation_pitches.len() {
+            return;
+        }
         self.intonation_cursor = mora_idx;
         let new_pitch = (self.intonation_pitches[mora_idx] + delta).clamp(0.0, 20.0);
         // 小数点1桁に丸める（浮動小数点誤差対策）
@@ -163,9 +171,9 @@ impl App {
             let pitches_changed = self.intonation_pitches != self.intonation_initial_pitches;
             if pitches_changed || had_prior_data {
                 self.line_intonations[self.cursor] = Some(IntonationLineData {
-                    query:      self.intonation_query.clone(),
+                    query: self.intonation_query.clone(),
                     mora_texts: self.intonation_mora_texts.clone(),
-                    pitches:    self.intonation_pitches.clone(),
+                    pitches: self.intonation_pitches.clone(),
                     speaker_id: self.intonation_speaker_id,
                 });
                 true
@@ -176,7 +184,7 @@ impl App {
             false
         };
         self.intonation_debounce = None;
-        self.mode       = Mode::Normal;
+        self.mode = Mode::Normal;
         self.status_msg = if saved {
             format!("[♬ intonation saved] line {}", self.cursor + 1)
         } else {
@@ -196,14 +204,22 @@ impl App {
         let gy = self.intonation_graph_y;
         let pitch_top = self.intonation_graph_pitch_top;
 
-        if gh == 0 { return; }
+        if gh == 0 {
+            return;
+        }
         // グラフ描画エリア外のクリックは無視する
-        if row < gy || row >= gy + gh { return; }
-        if col < gx { return; }
+        if row < gy || row >= gy + gh {
+            return;
+        }
+        if col < gx {
+            return;
+        }
 
         // クリックされたモーラ列を特定する
         let mut mora_idx: Option<usize> = None;
-        for (i, (&x_start, &w)) in self.intonation_mora_col_x.iter()
+        for (i, (&x_start, &w)) in self
+            .intonation_mora_col_x
+            .iter()
             .zip(self.intonation_mora_col_w.iter())
             .enumerate()
         {
@@ -212,8 +228,12 @@ impl App {
                 break;
             }
         }
-        let Some(mora_idx) = mora_idx else { return; };
-        if mora_idx >= self.intonation_pitches.len() { return; }
+        let Some(mora_idx) = mora_idx else {
+            return;
+        };
+        if mora_idx >= self.intonation_pitches.len() {
+            return;
+        }
 
         // クリック行からpitch値を計算する（上端行 = pitch_top、以下0.1ずつ減少）
         let rel_row = row - gy;

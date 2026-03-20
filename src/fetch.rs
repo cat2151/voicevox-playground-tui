@@ -18,26 +18,26 @@ pub type IsFetching = Arc<AtomicBool>;
 
 #[derive(Debug)]
 pub struct FetchRequest {
-    pub text:       String,
+    pub text: String,
     pub play_after: bool,
 }
 
 pub fn spawn_worker(
-    rx:          mpsc::Receiver<FetchRequest>,
-    cache:       WavCache,
-    play_tx:     mpsc::Sender<Vec<u8>>,
+    rx: mpsc::Receiver<FetchRequest>,
+    cache: WavCache,
+    play_tx: mpsc::Sender<Vec<u8>>,
     is_fetching: IsFetching,
 ) {
     tokio::spawn(worker_loop(rx, cache, play_tx, is_fetching));
 }
 
 async fn worker_loop(
-    mut rx:      mpsc::Receiver<FetchRequest>,
-    cache:       WavCache,
-    play_tx:     mpsc::Sender<Vec<u8>>,
+    mut rx: mpsc::Receiver<FetchRequest>,
+    cache: WavCache,
+    play_tx: mpsc::Sender<Vec<u8>>,
     is_fetching: IsFetching,
 ) {
-    let mut current_handle:  Option<tokio::task::JoinHandle<()>> = None;
+    let mut current_handle: Option<tokio::task::JoinHandle<()>> = None;
     let mut current_is_play: bool = false;
     // 世代カウンタ: abortされたタスクが遅れてis_fetchingをリセットするのを防ぐ
     let fetch_gen = Arc::new(AtomicU64::new(0));
@@ -65,33 +65,44 @@ async fn worker_loop(
             }
         }
 
-        if req.text.trim().is_empty() { continue; }
+        if req.text.trim().is_empty() {
+            continue;
+        }
 
         // 再生fetchが進行中の場合、prefetchはスキップ
-        if !req.play_after && current_is_play { continue; }
+        if !req.play_after && current_is_play {
+            continue;
+        }
 
-        let cached: Option<Vec<u8>> = {
-            cache.lock().unwrap().get(&req.text).cloned()
-        };
+        let cached: Option<Vec<u8>> = { cache.lock().unwrap().get(&req.text).cloned() };
         if let Some(wav) = cached {
-            if req.play_after { let _ = play_tx.send(wav).await; }
+            if req.play_after {
+                let _ = play_tx.send(wav).await;
+            }
             continue;
         }
 
         is_fetching.store(true, Ordering::Relaxed);
 
-        let gen               = fetch_gen.fetch_add(1, Ordering::Relaxed) + 1;
-        let fetch_gen_clone   = Arc::clone(&fetch_gen);
-        let cache_clone       = Arc::clone(&cache);
-        let play_tx_clone     = play_tx.clone();
+        let gen = fetch_gen.fetch_add(1, Ordering::Relaxed) + 1;
+        let fetch_gen_clone = Arc::clone(&fetch_gen);
+        let cache_clone = Arc::clone(&cache);
+        let play_tx_clone = play_tx.clone();
         let is_fetching_clone = Arc::clone(&is_fetching);
 
         current_is_play = req.play_after;
-        current_handle  = Some(tokio::spawn(async move {
+        current_handle = Some(tokio::spawn(async move {
             match voicevox::synthesize_line(&req.text).await {
                 Ok(wav) => {
-                    { cache_clone.lock().unwrap().insert(req.text.clone(), wav.clone()); }
-                    if req.play_after { let _ = play_tx_clone.send(wav).await; }
+                    {
+                        cache_clone
+                            .lock()
+                            .unwrap()
+                            .insert(req.text.clone(), wav.clone());
+                    }
+                    if req.play_after {
+                        let _ = play_tx_clone.send(wav).await;
+                    }
                 }
                 Err(e) => eprintln!("[fetch error] {e}"),
             }

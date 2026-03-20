@@ -6,7 +6,7 @@ use ratatui::{
 
 use crate::app::{App, Mode};
 
-use super::{BG, FG, DIM, YELLOW, GREEN, CYAN, CURSOR_NORMAL, CURSOR_INSERT};
+use super::{BG, CURSOR_INSERT, CURSOR_NORMAL, CYAN, DIM, FG, GREEN, YELLOW};
 
 pub(super) fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focused;
@@ -17,7 +17,7 @@ pub(super) fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
         match app.mode {
             Mode::Normal | Mode::Command | Mode::Help => CURSOR_NORMAL,
             Mode::Insert => CURSOR_INSERT,
-            _ => CURSOR_NORMAL
+            _ => CURSOR_NORMAL,
         }
     };
     let cursor_fg = if !focused {
@@ -26,15 +26,15 @@ pub(super) fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
         match app.mode {
             Mode::Normal | Mode::Command | Mode::Help => FG,
             Mode::Insert => BG,
-            _ => FG
+            _ => FG,
         }
     };
 
     // リスト全体のRect（ボーダー内側）
     let inner = Rect {
-        x:      area.x + 1,
-        y:      area.y + 1,
-        width:  area.width.saturating_sub(2),
+        x: area.x + 1,
+        y: area.y + 1,
+        width: area.width.saturating_sub(2),
         height: area.height.saturating_sub(2),
     };
 
@@ -44,55 +44,79 @@ pub(super) fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
     // 表示リスト内でのカーソル位置（非表示行の場合は最近傍の表示行位置）
     let visible_cursor = app.vis_cursor_pos();
 
-    let items: Vec<ListItem> = visible_indices.iter().map(|&i| {
-        let line = &app.lines[i];
-        // イントネーション編集済みの行用のキャッシュキーはロック取得前に計算しておく
-        let intonation_key = app.line_intonations.get(i)
-            .and_then(|d| d.as_ref())
-            .filter(|d| !d.query.is_null())
-            .and_then(|d| App::intonation_cache_key(d.speaker_id, &d.query));
-        let cached_mark = {
-            // query が非 Null の場合はイントネーション用キャッシュキーのみを確認する。
-            // query が Null（またはイントネーション情報なし）の場合はプレーンテキストキーを確認する。
-            let cache = app.cache.lock().unwrap();
-            let is_cached = if let Some(ref key) = intonation_key {
-                cache.contains_key(key)
-            } else {
-                // 折りたたみ用の行頭spaceはcacheキーから除外する（fetch_and_playと合わせる）
-                cache.contains_key(line.trim_start())
+    let items: Vec<ListItem> = visible_indices
+        .iter()
+        .map(|&i| {
+            let line = &app.lines[i];
+            // イントネーション編集済みの行用のキャッシュキーはロック取得前に計算しておく
+            let intonation_key = app
+                .line_intonations
+                .get(i)
+                .and_then(|d| d.as_ref())
+                .filter(|d| !d.query.is_null())
+                .and_then(|d| App::intonation_cache_key(d.speaker_id, &d.query));
+            let cached_mark = {
+                // query が非 Null の場合はイントネーション用キャッシュキーのみを確認する。
+                // query が Null（またはイントネーション情報なし）の場合はプレーンテキストキーを確認する。
+                let cache = app.cache.lock().unwrap();
+                let is_cached = if let Some(ref key) = intonation_key {
+                    cache.contains_key(key)
+                } else {
+                    // 折りたたみ用の行頭spaceはcacheキーから除外する（fetch_and_playと合わせる）
+                    cache.contains_key(line.trim_start())
+                };
+                if is_cached {
+                    "♪ "
+                } else {
+                    "  "
+                }
             };
-            if is_cached { "♪ " } else { "  " }
-        };
-        let intonation_mark = if app.line_intonations.get(i).and_then(|d| d.as_ref()).is_some() { "♬ " } else { "  " };
+            let intonation_mark = if app
+                .line_intonations
+                .get(i)
+                .and_then(|d| d.as_ref())
+                .is_some()
+            {
+                "♬ "
+            } else {
+                "  "
+            };
 
-        // 折りたたみ時：次の行が行頭spaceなら"+"インジケータを表示する
-        let fold_mark = if app.folded && app.lines.get(i + 1).map(|l| l.starts_with(' ')).unwrap_or(false) {
-            "+"
-        } else {
-            " "
-        };
-        let line_num = format!("{}{:>4} ", fold_mark, i + 1);
+            // 折りたたみ時：次の行が行頭spaceなら"+"インジケータを表示する
+            let fold_mark = if app.folded
+                && app
+                    .lines
+                    .get(i + 1)
+                    .map(|l| l.starts_with(' '))
+                    .unwrap_or(false)
+            {
+                "+"
+            } else {
+                " "
+            };
+            let line_num = format!("{}{:>4} ", fold_mark, i + 1);
 
-        // Insertモードのカーソル行はtextareaが別途描画するので、プレースホルダにする
-        let body = if app.mode == Mode::Insert && i == app.cursor {
-            format!("{}<editing>", cached_mark)
-        } else {
-            format!("{}{}{}", cached_mark, intonation_mark, line)
-        };
+            // Insertモードのカーソル行はtextareaが別途描画するので、プレースホルダにする
+            let body = if app.mode == Mode::Insert && i == app.cursor {
+                format!("{}<editing>", cached_mark)
+            } else {
+                format!("{}{}{}", cached_mark, intonation_mark, line)
+            };
 
-        let body_fg = if focused { FG } else { DIM };
-        let text = Line::from(vec![
-            Span::styled(line_num, Style::default().fg(DIM).bg(BG)),
-            Span::styled(body,     Style::default().fg(body_fg).bg(BG)),
-        ]);
+            let body_fg = if focused { FG } else { DIM };
+            let text = Line::from(vec![
+                Span::styled(line_num, Style::default().fg(DIM).bg(BG)),
+                Span::styled(body, Style::default().fg(body_fg).bg(BG)),
+            ]);
 
-        let style = if i == app.cursor {
-            Style::default().fg(cursor_fg).bg(cursor_bg).bold()
-        } else {
-            Style::default().bg(BG)
-        };
-        ListItem::new(text).style(style)
-    }).collect();
+            let style = if i == app.cursor {
+                Style::default().fg(cursor_fg).bg(cursor_bg).bold()
+            } else {
+                Style::default().bg(BG)
+            };
+            ListItem::new(text).style(style)
+        })
+        .collect();
 
     let mode_span = match app.mode {
         Mode::Normal | Mode::Command | Mode::Help => {
@@ -123,7 +147,10 @@ pub(super) fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
             let label = format!(" {} ", i + 1);
             if i == app.active_tab {
                 if focused {
-                    spans.push(Span::styled(label, Style::default().fg(BG).bg(YELLOW).bold()));
+                    spans.push(Span::styled(
+                        label,
+                        Style::default().fg(BG).bg(YELLOW).bold(),
+                    ));
                 } else {
                     spans.push(Span::styled(label, Style::default().fg(DIM).bg(BG)));
                 }
@@ -141,7 +168,7 @@ pub(super) fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
         match app.mode {
             Mode::Normal | Mode::Command | Mode::Help => DIM,
             Mode::Insert => CYAN,
-            _ => DIM
+            _ => DIM,
         }
     };
 
@@ -168,13 +195,20 @@ pub(super) fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
             let row_in_inner = (visible_cursor - win_start) as u16;
             if row_in_inner < inner.height {
                 // 行番号分(7文字)だけ右にオフセット
-                let ta_x      = inner.x + 7;
-                let ta_width  = inner.width.saturating_sub(7);
-                let ta_area   = Rect { x: ta_x, y: inner.y + row_in_inner, width: ta_width, height: 1 };
+                let ta_x = inner.x + 7;
+                let ta_width = inner.width.saturating_sub(7);
+                let ta_area = Rect {
+                    x: ta_x,
+                    y: inner.y + row_in_inner,
+                    width: ta_width,
+                    height: 1,
+                };
 
                 // textareaのスタイルをMonokaiに合わせる
-                app.textarea.set_style(Style::default().fg(BG).bg(CURSOR_INSERT));
-                app.textarea.set_cursor_style(Style::default().fg(CYAN).bg(BG).underlined());
+                app.textarea
+                    .set_style(Style::default().fg(BG).bg(CURSOR_INSERT));
+                app.textarea
+                    .set_cursor_style(Style::default().fg(CYAN).bg(BG).underlined());
                 app.textarea.set_block(Block::default()); // ボーダーなし
 
                 f.render_widget(&app.textarea, ta_area);
@@ -200,10 +234,7 @@ pub(super) fn render_tab_bar(f: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
     let line = Line::from(spans);
-    f.render_widget(
-        Paragraph::new(line).style(Style::default().bg(BG)),
-        area,
-    );
+    f.render_widget(Paragraph::new(line).style(Style::default().bg(BG)), area);
 }
 
 pub(super) fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
@@ -214,13 +245,14 @@ pub(super) fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
         let cmd_display = format!(":{}", app.command_buf);
         let hint = "Enter:execute  Esc:cancel";
         let hint_width = hint.len() as u16 + 1;
-        let cols = Layout::horizontal([
-            Constraint::Min(0),
-            Constraint::Length(hint_width),
-        ]).split(area);
+        let cols =
+            Layout::horizontal([Constraint::Min(0), Constraint::Length(hint_width)]).split(area);
         f.render_widget(
-            Paragraph::new(cmd_display)
-                .style(Style::default().fg(if focused { YELLOW } else { DIM }).bg(BG)),
+            Paragraph::new(cmd_display).style(
+                Style::default()
+                    .fg(if focused { YELLOW } else { DIM })
+                    .bg(BG),
+            ),
             cols[0],
         );
         f.render_widget(
@@ -241,10 +273,7 @@ pub(super) fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
     };
     let hint_width = hint.len() as u16 + 1;
 
-    let cols = Layout::horizontal([
-        Constraint::Min(0),
-        Constraint::Length(hint_width),
-    ]).split(area);
+    let cols = Layout::horizontal([Constraint::Min(0), Constraint::Length(hint_width)]).split(area);
 
     let status_color = if !focused {
         DIM
@@ -252,19 +281,19 @@ pub(super) fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
         match app.mode {
             Mode::Normal | Mode::Command | Mode::Help => YELLOW,
             Mode::Insert => CYAN,
-            _ => YELLOW
+            _ => YELLOW,
         }
     };
     f.render_widget(
-        Paragraph::new(app.status_display())
-            .style(Style::default().fg(status_color).bg(BG)),
+        Paragraph::new(app.status_display()).style(Style::default().fg(status_color).bg(BG)),
         cols[0],
     );
 
     // NormalモードでESCが押された直後は"q:quit"をハイライト表示する（フォーカス中のみ）
     let esc_hint_active = focused
         && app.mode == Mode::Normal
-        && app.esc_hint_until
+        && app
+            .esc_hint_until
             .map(|until| until > std::time::Instant::now())
             .unwrap_or(false);
 

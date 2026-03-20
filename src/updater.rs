@@ -11,6 +11,7 @@ use anyhow::Result;
 
 const REPO_OWNER: &str = "cat2151";
 const REPO_NAME: &str = "voicevox-playground-tui";
+const GIT_URL: &str = "https://github.com/cat2151/voicevox-playground-tui";
 
 /// ビルド時に埋め込まれたgit commit hash
 const LOCAL_HASH: &str = env!("GIT_COMMIT_HASH");
@@ -78,33 +79,75 @@ async fn check_for_update(update_available: Arc<AtomicBool>) -> Result<()> {
     Ok(())
 }
 
-/// ユニークなファイル名を生成するためのタイムスタンプ（ナノ秒）を返す
+fn install_command() -> String {
+    format!("cargo install --force --git {GIT_URL}")
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn update_bat_content(relaunch_command: Option<&str>) -> String {
+    let mut script = format!(
+        "@echo off\r\ntimeout /t 3 /nobreak >nul\r\n{}\r\n",
+        install_command()
+    );
+    if let Some(command) = relaunch_command {
+        script.push_str(command);
+        script.push_str("\r\n");
+    }
+    script.push_str("del \"%~f0\"\r\n");
+    script
+}
+
 #[cfg(target_os = "windows")]
-fn unique_suffix() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0)
+fn write_update_script(prefix: &str, relaunch_command: Option<&str>) -> Result<std::path::PathBuf> {
+    use std::io::Write;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let pid = std::process::id();
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let script_path = std::env::temp_dir().join(format!("{prefix}_{pid}_{timestamp}.bat"));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&script_path)?;
+    file.write_all(update_bat_content(relaunch_command).as_bytes())?;
+    Ok(script_path)
 }
 
 /// Windowsでのアップデートを行うバッチファイルをspawnする。
-/// スクリプトは: メインプロセス終了を待つ → cargo install → vpt を起動。
+/// スクリプトは: メインプロセス終了を待つ → cargo install → 必要なら vpt を起動。
 /// ユニークなファイル名を使い、実行後に自身を削除する。
 #[cfg(target_os = "windows")]
-fn spawn_updater_process() -> Result<()> {
-    let suffix = unique_suffix();
-    let script_path = std::env::temp_dir().join(format!("vpt_updater_{}.bat", suffix));
-    let script = format!(
-        "@echo off\r\ntimeout /t 3 /nobreak >nul\r\ncargo install --force --git https://github.com/{}/{}\r\nvpt\r\n(goto) 2>nul & del \"%~f0\"\r\n",
-        REPO_OWNER, REPO_NAME
-    );
-    std::fs::write(&script_path, &script)?;
+fn spawn_updater_process(relaunch_command: Option<&str>) -> Result<()> {
+    let script_path = write_update_script("vpt_updater", relaunch_command)?;
     let script_str = script_path
         .to_str()
         .ok_or_else(|| anyhow::anyhow!("Updater script path contains invalid UTF-8"))?;
     std::process::Command::new("cmd")
-        .args(["/C", "start", "vpt updater", script_str])
+        .args(["/C", "start", "", script_str])
         .spawn()?;
+    Ok(())
+}
+
+async fn run_install() -> Result<()> {
+    let install_command = install_command();
+    println!("{install_command}");
+
+    let status = tokio::task::spawn_blocking(move || {
+        std::process::Command::new("cargo")
+            .args(["install", "--force", "--git", GIT_URL])
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .status()
+    })
+    .await??;
+
+    if !status.success() {
+        anyhow::bail!("アップデートに失敗しました。");
+    }
+
     Ok(())
 }
 
@@ -115,39 +158,69 @@ pub async fn run_foreground_update() -> Result<()> {
     #[cfg(target_os = "windows")]
     {
         println!("アップデートをバッチファイルで開始します...");
-        spawn_updater_process()
-            .map_err(|e| anyhow::anyhow!("バッチファイルアップデーターの起動に失敗しました: {}", e))?;
+        spawn_updater_process(Some("vpt")).map_err(|e| {
+            anyhow::anyhow!("バッチファイルアップデーターの起動に失敗しました: {}", e)
+        })?;
         return Ok(());
     }
 
     #[cfg(not(target_os = "windows"))]
     {
         println!("アップデートを開始します...");
-        println!("cargo install --force --git https://github.com/{}/{}", REPO_OWNER, REPO_NAME);
-
-        let status = tokio::task::spawn_blocking(|| {
-            std::process::Command::new("cargo")
-                .args([
-                    "install",
-                    "--force",
-                    "--git",
-                    &format!("https://github.com/{}/{}", REPO_OWNER, REPO_NAME),
-                ])
-                .stdout(std::process::Stdio::inherit())
-                .stderr(std::process::Stdio::inherit())
-                .status()
-        })
-        .await??;
-
-        if status.success() {
-            println!("アップデート成功！再起動します...");
-            if let Err(e) = std::process::Command::new("vpt").spawn() {
-                eprintln!("vptの再起動に失敗しました: {}", e);
-            }
-        } else {
-            eprintln!("アップデートに失敗しました。");
+        run_install().await?;
+        println!("アップデート成功！再起動します...");
+        if let Err(e) = std::process::Command::new("vpt").spawn() {
+            eprintln!("vptの再起動に失敗しました: {}", e);
         }
 
         Ok(())
+    }
+}
+
+/// updateサブコマンド用のself updateを実行する。
+/// Windowsでは自分自身のexeを置き換えるため、batを起動して即時終了する。
+pub async fn run_self_update() -> Result<()> {
+    #[cfg(target_os = "windows")]
+    {
+        println!("セルフアップデートをバッチファイルで開始します...");
+        spawn_updater_process(None).map_err(|e| {
+            anyhow::anyhow!(
+                "セルフアップデート用バッチファイルの起動に失敗しました: {}",
+                e
+            )
+        })?;
+        return Ok(());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        println!("セルフアップデートを開始します...");
+        run_install().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{update_bat_content, GIT_URL};
+
+    #[test]
+    fn update_bat_contains_install_command() {
+        let bat = update_bat_content(None);
+        assert!(bat.contains("cargo install --force --git"));
+        assert!(bat.contains(GIT_URL));
+    }
+
+    #[test]
+    fn self_update_bat_does_not_restart_vpt() {
+        let bat = update_bat_content(None);
+        assert!(!bat.contains("\r\nvpt\r\n"));
+    }
+
+    #[test]
+    fn foreground_update_bat_restarts_vpt_and_self_deletes() {
+        let bat = update_bat_content(Some("vpt"));
+        assert!(bat.contains("\r\nvpt\r\n"));
+        assert!(bat.contains("del \"%~f0\""));
+        assert!(!bat.contains("(goto)"));
     }
 }
