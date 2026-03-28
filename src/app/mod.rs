@@ -20,7 +20,7 @@ use tui_textarea::TextArea;
 
 use crate::background_prefetch;
 use crate::fetch::{FetchRequest, IsFetching, WavCache};
-use crate::player;
+use crate::player::{self, PlayRequest};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mode {
@@ -63,7 +63,7 @@ pub struct App {
     pub cache:         WavCache,
     pub status_msg:    String,
     pub fetch_tx:      mpsc::Sender<FetchRequest>,
-    pub play_tx:       mpsc::Sender<Vec<u8>>,
+    pub play_tx:       mpsc::Sender<PlayRequest>,
     pub visible_lines: usize,
     pub pending_d:     bool,
     /// "z"キー待機中（zm/zrのプレフィックス）
@@ -192,7 +192,7 @@ impl App {
         let line_intonations = vec![None; lines.len()];
         let cache: WavCache = Arc::new(Mutex::new(HashMap::new()));
 
-        let (play_tx, play_rx) = mpsc::channel::<Vec<u8>>(8);
+        let (play_tx, play_rx) = mpsc::channel::<PlayRequest>(8);
         player::spawn_player(play_rx);
 
         let is_fetching: IsFetching = Arc::new(AtomicBool::new(false));
@@ -318,7 +318,10 @@ impl App {
                         // API取得に失敗した場合は通常の合成にフォールスルー
                         let cached = { self.cache.lock().unwrap().get(&text).cloned() };
                         if let Some(wav) = cached {
-                            let _ = self.play_tx.send(wav).await;
+                            let _ = self.play_tx.send(PlayRequest {
+                                wav,
+                                source_text: text.clone(),
+                            }).await;
                             self.status_msg = format!("[♪ cached] line {}", index + 1);
                         } else {
                             let _ = self.fetch_tx.send(FetchRequest { text, play_after: true }).await;
@@ -334,19 +337,25 @@ impl App {
             if let Some(cache_key) = Self::intonation_cache_key(data.speaker_id, &data.query) {
                 let cached = { self.cache.lock().unwrap().get(&cache_key).cloned() };
                 if let Some(wav) = cached {
-                    let _ = self.play_tx.send(wav).await;
+                    let _ = self.play_tx.send(PlayRequest {
+                        wav,
+                        source_text: text.clone(),
+                    }).await;
                     self.status_msg = format!("[♬ cached] line {}", index + 1);
                     return;
                 }
             }
-            self.spawn_intonation_play(data.query, data.speaker_id);
+            self.spawn_intonation_play(data.query, data.speaker_id, text.clone());
             self.status_msg = format!("[♬ intonation] line {}", index + 1);
             return;
         }
 
         let cached = { self.cache.lock().unwrap().get(&text).cloned() };
         if let Some(wav) = cached {
-            let _ = self.play_tx.send(wav).await;
+            let _ = self.play_tx.send(PlayRequest {
+                wav,
+                source_text: text.clone(),
+            }).await;
             self.status_msg = format!("[♪ cached] line {}", index + 1);
         } else {
             let _ = self.fetch_tx.send(FetchRequest { text, play_after: true }).await;
@@ -393,7 +402,12 @@ impl App {
     /// イントネーションqueryを使って合成・再生するタスクを起動する。
     /// 前回のタスクがあればabortしてから新しいタスクを起動する（並列実行を防ぐ）。
     /// 合成結果はWavCacheに保存し、次回以降の再生でキャッシュから即時再生できるようにする。
-    pub(super) fn spawn_intonation_play(&mut self, query: serde_json::Value, speaker_id: u32) {
+    pub(super) fn spawn_intonation_play(
+        &mut self,
+        query: serde_json::Value,
+        speaker_id: u32,
+        source_text: String,
+    ) {
         if let Some(h) = self.intonation_play_handle.take() {
             h.abort();
         }
@@ -405,7 +419,7 @@ impl App {
                 if let Some(key) = cache_key {
                     cache.lock().unwrap().insert(key, wav.clone());
                 }
-                let _ = play_tx.send(wav).await;
+                let _ = play_tx.send(PlayRequest { wav, source_text }).await;
             }
         }));
     }

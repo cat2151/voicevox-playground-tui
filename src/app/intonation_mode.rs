@@ -21,6 +21,7 @@
 
 use std::time::{Duration, Instant};
 
+use crate::player::PlayRequest;
 use crate::{tag, ui, voicevox};
 
 use super::{App, IntonationLineData, Mode};
@@ -263,6 +264,9 @@ impl App {
     /// キャッシュにWAVが存在する場合は即時再生し、ない場合はバックグラウンドで合成して再生する。
     pub(super) async fn play_with_intonation_query(&mut self) {
         let speaker_id = self.intonation_speaker_id;
+        let source_text = self.lines.get(self.cursor)
+            .map(|line| line.trim_start().to_owned())
+            .unwrap_or_default();
         if let Some(cache_key) = Self::intonation_cache_key(speaker_id, &self.intonation_query) {
             let cached = { self.cache.lock().unwrap().get(&cache_key).cloned() };
             if let Some(wav) = cached {
@@ -270,11 +274,14 @@ impl App {
                 if let Some(h) = self.intonation_play_handle.take() {
                     h.abort();
                 }
-                let _ = self.play_tx.send(wav).await;
+                let _ = self.play_tx.send(PlayRequest {
+                    wav,
+                    source_text: source_text.clone(),
+                }).await;
                 self.status_msg = String::from("[♬ cached]");
                 return;
             }
         }
-        self.spawn_intonation_play(self.intonation_query.clone(), speaker_id);
+        self.spawn_intonation_play(self.intonation_query.clone(), speaker_id, source_text);
     }
 }
