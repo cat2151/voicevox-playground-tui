@@ -15,7 +15,8 @@ impl App {
         let text = if current.trim().is_empty() {
             // 空行なら1つ上の行のコンテキストを継承
             if self.cursor > 0 {
-                self.lines.get(self.cursor - 1)
+                self.lines
+                    .get(self.cursor - 1)
                     .map(|l| tag::ctx_to_prefix(&tag::tail_ctx(l)))
                     .unwrap_or_default()
             } else {
@@ -24,22 +25,24 @@ impl App {
         } else {
             current
         };
-        self.textarea   = super::utils::make_textarea(text);
-        self.mode       = Mode::Insert;
+        self.textarea = super::utils::make_textarea(text);
+        self.mode = Mode::Insert;
         self.status_msg = String::from("-- INSERT --");
     }
 
     /// o: 現在行の下に空行を挿入。現在行の末尾コンテキストを継承。
     pub fn enter_insert_below(&mut self) {
         self.reset_pending_prefixes();
-        let prefix = self.lines.get(self.cursor)
+        let prefix = self
+            .lines
+            .get(self.cursor)
             .map(|l| tag::ctx_to_prefix(&tag::tail_ctx(l)))
             .unwrap_or_default();
         self.lines.insert(self.cursor + 1, prefix.clone());
         self.line_intonations.insert(self.cursor + 1, None);
-        self.cursor    += 1;
-        self.textarea   = super::utils::make_textarea(prefix);
-        self.mode       = Mode::Insert;
+        self.cursor += 1;
+        self.textarea = super::utils::make_textarea(prefix);
+        self.mode = Mode::Insert;
         self.status_msg = String::from("-- INSERT --");
     }
 
@@ -47,7 +50,8 @@ impl App {
     pub fn enter_insert_above(&mut self) {
         self.reset_pending_prefixes();
         let prefix = if self.cursor > 0 {
-            self.lines.get(self.cursor - 1)
+            self.lines
+                .get(self.cursor - 1)
                 .map(|l| tag::ctx_to_prefix(&tag::tail_ctx(l)))
                 .unwrap_or_default()
         } else {
@@ -55,8 +59,8 @@ impl App {
         };
         self.lines.insert(self.cursor, prefix.clone());
         self.line_intonations.insert(self.cursor, None);
-        self.textarea   = super::utils::make_textarea(prefix);
-        self.mode       = Mode::Insert;
+        self.textarea = super::utils::make_textarea(prefix);
+        self.mode = Mode::Insert;
         self.status_msg = String::from("-- INSERT --");
     }
 
@@ -64,7 +68,7 @@ impl App {
     pub async fn commit_insert(&mut self) {
         self.status_msg = String::from("ready");
         self.commit_lines().await;
-        self.mode       = Mode::Normal;
+        self.mode = Mode::Normal;
     }
 
     /// ENTERで確定: 現在行を確定し、下に空行を挿入してINSERTモードで編集開始（vim の o 相当）
@@ -76,7 +80,7 @@ impl App {
     /// INSERTモードのバッファをlinesに書き戻し、再生・prefetchを行う内部ヘルパー。
     /// modeは変更しない。
     async fn commit_lines(&mut self) {
-        let raw  = self.textarea.lines().first().cloned().unwrap_or_default();
+        let raw = self.textarea.lines().first().cloned().unwrap_or_default();
         let text = tag::expand_id_tags(&raw);
         let split_lines = tag::split_by_ctx_change(&text);
         if self.cursor < self.lines.len() {
@@ -106,11 +110,19 @@ impl App {
 
     /// Insert中の文字変化ごとに呼ぶ（debounce prefetch）
     pub async fn on_edit_buf_changed(&mut self) {
-        let raw  = self.textarea.lines().first().cloned().unwrap_or_default();
+        let raw = self.textarea.lines().first().cloned().unwrap_or_default();
         // [N]展開後、折りたたみ用の行頭spaceを除いたキーでfetchする
         let text = tag::expand_id_tags(&raw).trim_start().to_owned();
-        if text.trim().is_empty() { return; }
-        let _ = self.fetch_tx.send(FetchRequest { text, play_after: false }).await;
+        if text.trim().is_empty() {
+            return;
+        }
+        let _ = self
+            .fetch_tx
+            .send(FetchRequest {
+                text,
+                play_after: false,
+            })
+            .await;
     }
 
     /// ステータス表示文字列: Insertモード中にfetch中なら "[fetching...]" を返す
@@ -129,7 +141,9 @@ mod tests {
     use crate::app::IntonationLineData;
     use crate::speakers;
 
-    fn setup() { speakers::init_test_table(); }
+    fn setup() {
+        speakers::init_test_table();
+    }
 
     fn make_app_with_line(line: &str) -> App {
         App::new(vec![line.to_string()])
@@ -137,9 +151,9 @@ mod tests {
 
     fn dummy_intonation() -> IntonationLineData {
         IntonationLineData {
-            query:      serde_json::Value::Null,
+            query: serde_json::Value::Null,
             mora_texts: vec!["ず".to_string(), "ん".to_string()],
-            pitches:    vec![5.9, 6.0],
+            pitches: vec![5.9, 6.0],
             speaker_id: 3,
         }
     }
