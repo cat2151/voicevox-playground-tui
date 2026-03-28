@@ -29,7 +29,7 @@ struct ChangeSkinRequest<'a> {
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum MotionTimelineKind {
-    Shake,
+    MouthFlap,
 }
 
 #[derive(Debug, Serialize)]
@@ -182,7 +182,7 @@ fn handle_playback_sync(sync: MascotPlaybackSync) {
 
     let request = MotionTimelineRequest {
         steps: vec![MotionTimelineStep {
-            kind: MotionTimelineKind::Shake,
+            kind: MotionTimelineKind::MouthFlap,
             duration_ms: sync.duration_ms,
             fps: TIMELINE_FPS,
         }],

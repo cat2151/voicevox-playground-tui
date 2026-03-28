@@ -55,3 +55,17 @@ fn env_png_path_prefers_existing_png_file() {
     let _ = fs::remove_file(png);
     let _ = fs::remove_dir(dir);
 }
+
+#[test]
+fn motion_timeline_request_serializes_mouth_flap_kind() {
+    let body = serde_json::to_value(MotionTimelineRequest {
+        steps: vec![MotionTimelineStep {
+            kind: MotionTimelineKind::MouthFlap,
+            duration_ms: 5_000,
+            fps: 20,
+        }],
+    })
+    .unwrap();
+
+    assert_eq!(body["steps"][0]["kind"], "mouth_flap");
+}
