@@ -28,12 +28,12 @@ pub enum HelpAction {
 
 /// ヘルプメニューの1エントリ（表示テキストと実行アクションをひとまとめに管理）
 pub struct HelpEntry {
-    pub key: &'static str,
+    pub key:           &'static str,
     /// ヘルプモードでのキー入力照合に使う正規キー文字列。
     /// 空文字列の場合は照合対象外（hjkl・カーソルキー相当で無効）。
     pub canonical_key: &'static str,
-    pub desc: &'static str,
-    pub action: HelpAction,
+    pub desc:          &'static str,
+    pub action:        HelpAction,
 }
 
 /// NORMALモードのkeybind一覧（helpメニュー表示・実行用）。
@@ -43,126 +43,26 @@ pub struct HelpEntry {
 /// `canonical_key` が空文字列のエントリはヘルプモードのキー入力では選択できない
 /// （hjkl・カーソルキー相当、または複合コマンドモード操作）。
 pub const HELP_ENTRIES: &[HelpEntry] = &[
-    HelpEntry {
-        key: "j / ↓",
-        canonical_key: "",
-        desc: "カーソル下移動",
-        action: HelpAction::MoveDown,
-    },
-    HelpEntry {
-        key: "i",
-        canonical_key: "i",
-        desc: "現在行を編集（挿入モード）",
-        action: HelpAction::EditCurrent,
-    },
-    HelpEntry {
-        key: "k / ↑",
-        canonical_key: "",
-        desc: "カーソル上移動",
-        action: HelpAction::MoveUp,
-    },
-    HelpEntry {
-        key: "O",
-        canonical_key: "O",
-        desc: "上に新行を挿入して編集",
-        action: HelpAction::InsertAbove,
-    },
-    HelpEntry {
-        key: "zm",
-        canonical_key: "zm",
-        desc: "折りたたむ（行頭space行を非表示）",
-        action: HelpAction::Fold,
-    },
-    HelpEntry {
-        key: "o",
-        canonical_key: "o",
-        desc: "下に新行を挿入して編集",
-        action: HelpAction::InsertBelow,
-    },
-    HelpEntry {
-        key: "zr",
-        canonical_key: "zr",
-        desc: "折りたたみを解除",
-        action: HelpAction::Unfold,
-    },
-    HelpEntry {
-        key: "dd",
-        canonical_key: "dd",
-        desc: "現在行を削除",
-        action: HelpAction::DeleteLine,
-    },
-    HelpEntry {
-        key: "l / gt",
-        canonical_key: "gt",
-        desc: "次のタブへ移動",
-        action: HelpAction::TabNext,
-    },
-    HelpEntry {
-        key: "P",
-        canonical_key: "P",
-        desc: "ヤンクバッファを上にペースト",
-        action: HelpAction::PasteAbove,
-    },
-    HelpEntry {
-        key: "gT",
-        canonical_key: "gT",
-        desc: "前のタブへ移動",
-        action: HelpAction::TabPrev,
-    },
-    HelpEntry {
-        key: "p",
-        canonical_key: "p",
-        desc: "ヤンクバッファを下にペースト",
-        action: HelpAction::PasteBelow,
-    },
-    HelpEntry {
-        key: "Space",
-        canonical_key: " ",
-        desc: "現在行を再生",
-        action: HelpAction::PlayCurrent,
-    },
-    HelpEntry {
-        key: ":tabnew",
-        canonical_key: ":tabnew",
-        desc: "新しいタブを作成",
-        action: HelpAction::TabNew,
-    },
-    HelpEntry {
-        key: "Enter",
-        canonical_key: "",
-        desc: "下へ移動（j と同じ）",
-        action: HelpAction::None,
-    },
-    HelpEntry {
-        key: "v",
-        canonical_key: "v",
-        desc: "イントネーション編集モードへ",
-        action: HelpAction::IntonationMode,
-    },
-    HelpEntry {
-        key: "n j/k",
-        canonical_key: "",
-        desc: "n行分移動（例: 5j）",
-        action: HelpAction::None,
-    },
-    HelpEntry {
-        key: "\"+P",
-        canonical_key: "\"+P",
-        desc: "クリップボードを上にペースト",
-        action: HelpAction::PasteAboveClipboard,
-    },
-    HelpEntry {
-        key: "q",
-        canonical_key: "q",
-        desc: "終了",
-        action: HelpAction::Quit,
-    },
-    HelpEntry {
-        key: "\"+p",
-        canonical_key: "\"+p",
-        desc: "クリップボードを下にペースト",
-        action: HelpAction::PasteBelowClipboard,
-    },
+    HelpEntry { key: "j / ↓",      canonical_key: "",      desc: "カーソル下移動",               action: HelpAction::MoveDown },
+    HelpEntry { key: "i",           canonical_key: "i",     desc: "現在行を編集（挿入モード）",   action: HelpAction::EditCurrent },
+    HelpEntry { key: "k / ↑",      canonical_key: "",      desc: "カーソル上移動",               action: HelpAction::MoveUp },
+    HelpEntry { key: "O",           canonical_key: "O",     desc: "上に新行を挿入して編集",       action: HelpAction::InsertAbove },
+    HelpEntry { key: "zm",          canonical_key: "zm",    desc: "折りたたむ（行頭space行を非表示）", action: HelpAction::Fold },
+    HelpEntry { key: "o",           canonical_key: "o",     desc: "下に新行を挿入して編集",       action: HelpAction::InsertBelow },
+    HelpEntry { key: "zr",          canonical_key: "zr",    desc: "折りたたみを解除",             action: HelpAction::Unfold },
+    HelpEntry { key: "dd",          canonical_key: "dd",    desc: "現在行を削除",                 action: HelpAction::DeleteLine },
+    HelpEntry { key: "l / gt",      canonical_key: "gt",    desc: "次のタブへ移動",               action: HelpAction::TabNext },
+    HelpEntry { key: "P",           canonical_key: "P",     desc: "ヤンクバッファを上にペースト", action: HelpAction::PasteAbove },
+    HelpEntry { key: "gT",          canonical_key: "gT",    desc: "前のタブへ移動",               action: HelpAction::TabPrev },
+    HelpEntry { key: "p",           canonical_key: "p",     desc: "ヤンクバッファを下にペースト", action: HelpAction::PasteBelow },
+    HelpEntry { key: "Space",        canonical_key: " ",     desc: "現在行を再生",                 action: HelpAction::PlayCurrent },
+    HelpEntry { key: ":tabnew",      canonical_key: ":tabnew", desc: "新しいタブを作成",             action: HelpAction::TabNew },
+    HelpEntry { key: "Enter",        canonical_key: "",      desc: "下へ移動（j と同じ）",            action: HelpAction::None },
+    HelpEntry { key: "v",           canonical_key: "v",     desc: "イントネーション編集モードへ", action: HelpAction::IntonationMode },
+    HelpEntry { key: "n j/k",        canonical_key: "",      desc: "n行分移動（例: 5j）",           action: HelpAction::None },
+    HelpEntry { key: "\"+P",        canonical_key: "\"+P",  desc: "クリップボードを上にペースト", action: HelpAction::PasteAboveClipboard },
+    HelpEntry { key: "q",           canonical_key: "q",     desc: "終了",                         action: HelpAction::Quit },
+    HelpEntry { key: "\"+p",        canonical_key: "\"+p",  desc: "クリップボードを下にペースト", action: HelpAction::PasteBelowClipboard },
 ];
 
 impl App {
@@ -183,9 +83,7 @@ impl App {
         let mut exact_action: Option<HelpAction> = None;
         let mut has_prefix = false;
         for e in HELP_ENTRIES {
-            if e.canonical_key.is_empty() {
-                continue;
-            }
+            if e.canonical_key.is_empty() { continue; }
             if e.canonical_key == self.help_key_buf.as_str() {
                 exact_action = Some(e.action.clone());
                 break; // 完全一致が見つかったら前方一致の走査は不要
@@ -212,13 +110,8 @@ impl App {
         if self.help_key_buf.is_empty() {
             return vec![];
         }
-        HELP_ENTRIES
-            .iter()
-            .enumerate()
-            .filter(|(_, e)| {
-                !e.canonical_key.is_empty()
-                    && e.canonical_key.starts_with(self.help_key_buf.as_str())
-            })
+        HELP_ENTRIES.iter().enumerate()
+            .filter(|(_, e)| !e.canonical_key.is_empty() && e.canonical_key.starts_with(self.help_key_buf.as_str()))
             .map(|(i, _)| i)
             .collect()
     }
@@ -233,12 +126,8 @@ mod tests {
 
     /// help_matching_indices と同じロジックを独立して検証する。
     fn matching_indices(buf: &str) -> Vec<usize> {
-        if buf.is_empty() {
-            return vec![];
-        }
-        HELP_ENTRIES
-            .iter()
-            .enumerate()
+        if buf.is_empty() { return vec![]; }
+        HELP_ENTRIES.iter().enumerate()
             .filter(|(_, e)| !e.canonical_key.is_empty() && e.canonical_key.starts_with(buf))
             .map(|(i, _)| i)
             .collect()
@@ -250,9 +139,7 @@ mod tests {
         let mut exact_action: Option<HelpAction> = None;
         let mut has_prefix = false;
         for e in HELP_ENTRIES {
-            if e.canonical_key.is_empty() {
-                continue;
-            }
+            if e.canonical_key.is_empty() { continue; }
             if e.canonical_key == buf.as_str() {
                 exact_action = Some(e.action.clone());
                 break;
@@ -265,9 +152,7 @@ mod tests {
             buf.clear();
             return Some(action);
         }
-        if !has_prefix {
-            buf.clear();
-        }
+        if !has_prefix { buf.clear(); }
         None
     }
 
@@ -281,13 +166,9 @@ mod tests {
     #[test]
     fn matching_z_returns_zm_and_zr() {
         let indices = matching_indices("z");
-        let zm_idx = HELP_ENTRIES
-            .iter()
-            .position(|e| e.canonical_key == "zm")
+        let zm_idx = HELP_ENTRIES.iter().position(|e| e.canonical_key == "zm")
             .expect("zmエントリがHELP_ENTRIESに存在すること");
-        let zr_idx = HELP_ENTRIES
-            .iter()
-            .position(|e| e.canonical_key == "zr")
+        let zr_idx = HELP_ENTRIES.iter().position(|e| e.canonical_key == "zr")
             .expect("zrエントリがHELP_ENTRIESに存在すること");
         assert!(indices.contains(&zm_idx), "zmエントリがマッチすること");
         assert!(indices.contains(&zr_idx), "zrエントリがマッチすること");
@@ -296,9 +177,7 @@ mod tests {
     #[test]
     fn matching_zm_returns_only_zm() {
         let indices = matching_indices("zm");
-        let zm_idx = HELP_ENTRIES
-            .iter()
-            .position(|e| e.canonical_key == "zm")
+        let zm_idx = HELP_ENTRIES.iter().position(|e| e.canonical_key == "zm")
             .expect("zmエントリがHELP_ENTRIESに存在すること");
         assert_eq!(indices, vec![zm_idx]);
     }
@@ -306,13 +185,9 @@ mod tests {
     #[test]
     fn matching_g_returns_gt_and_gt_upper() {
         let indices = matching_indices("g");
-        let gt_idx = HELP_ENTRIES
-            .iter()
-            .position(|e| e.canonical_key == "gt")
+        let gt_idx  = HELP_ENTRIES.iter().position(|e| e.canonical_key == "gt")
             .expect("gtエントリがHELP_ENTRIESに存在すること");
-        let g_t_idx = HELP_ENTRIES
-            .iter()
-            .position(|e| e.canonical_key == "gT")
+        let g_t_idx = HELP_ENTRIES.iter().position(|e| e.canonical_key == "gT")
             .expect("gTエントリがHELP_ENTRIESに存在すること");
         assert!(indices.contains(&gt_idx), "gtエントリがマッチすること");
         assert!(indices.contains(&g_t_idx), "gTエントリがマッチすること");
@@ -382,11 +257,8 @@ mod tests {
     #[test]
     fn help_entries_count_is_even() {
         // 左右列が必ず対になるよう、エントリ数は偶数でなければならない
-        assert_eq!(
-            HELP_ENTRIES.len() % 2,
-            0,
-            "HELP_ENTRIESは偶数個でなければならない（左右列の対称性を保つため）"
-        );
+        assert_eq!(HELP_ENTRIES.len() % 2, 0,
+            "HELP_ENTRIESは偶数個でなければならない（左右列の対称性を保つため）");
     }
 
     #[test]
@@ -396,53 +268,32 @@ mod tests {
 
     #[test]
     fn help_entries_last_is_paste_below_clipboard() {
-        assert_eq!(
-            HELP_ENTRIES.last().unwrap().action,
-            HelpAction::PasteBelowClipboard
-        );
+        assert_eq!(HELP_ENTRIES.last().unwrap().action, HelpAction::PasteBelowClipboard);
     }
 
     #[test]
     fn hjkl_entries_have_empty_canonical_key() {
         // j, k エントリは canonical_key が空であること（ヘルプモードで無効）
-        let j_entry = HELP_ENTRIES
-            .iter()
-            .find(|e| e.action == HelpAction::MoveDown)
+        let j_entry = HELP_ENTRIES.iter().find(|e| e.action == HelpAction::MoveDown)
             .expect("MoveDownエントリがHELP_ENTRIESに存在すること");
-        let k_entry = HELP_ENTRIES
-            .iter()
-            .find(|e| e.action == HelpAction::MoveUp)
+        let k_entry = HELP_ENTRIES.iter().find(|e| e.action == HelpAction::MoveUp)
             .expect("MoveUpエントリがHELP_ENTRIESに存在すること");
-        assert!(
-            j_entry.canonical_key.is_empty(),
-            "jエントリのcanonical_keyは空"
-        );
-        assert!(
-            k_entry.canonical_key.is_empty(),
-            "kエントリのcanonical_keyは空"
-        );
+        assert!(j_entry.canonical_key.is_empty(), "jエントリのcanonical_keyは空");
+        assert!(k_entry.canonical_key.is_empty(), "kエントリのcanonical_keyは空");
     }
 
     #[test]
     fn n_jk_entry_is_in_left_column() {
         // "n j/k" は左列（偶数インデックス）に配置されること（qの上に表示するため）
-        let idx = HELP_ENTRIES
-            .iter()
-            .position(|e| e.key == "n j/k")
+        let idx = HELP_ENTRIES.iter().position(|e| e.key == "n j/k")
             .expect("n j/kエントリがHELP_ENTRIESに存在すること");
-        assert_eq!(
-            idx % 2,
-            0,
-            "n j/kエントリは左列（偶数インデックス）に表示されること"
-        );
+        assert_eq!(idx % 2, 0, "n j/kエントリは左列（偶数インデックス）に表示されること");
     }
 
     #[test]
     fn tab_next_canonical_key_is_gt_not_l() {
         // "l / gt" エントリの canonical_key は "gt"（lはヘルプモードで無効）
-        let entry = HELP_ENTRIES
-            .iter()
-            .find(|e| e.action == HelpAction::TabNext)
+        let entry = HELP_ENTRIES.iter().find(|e| e.action == HelpAction::TabNext)
             .expect("TabNextエントリがHELP_ENTRIESに存在すること");
         assert_eq!(entry.canonical_key, "gt");
     }
@@ -450,14 +301,9 @@ mod tests {
     #[test]
     fn tabnew_canonical_key_is_tabnew() {
         // :tabnew エントリの canonical_key が ":tabnew" であること（ヘルプモードで入力できること）
-        let entry = HELP_ENTRIES
-            .iter()
-            .find(|e| e.action == HelpAction::TabNew)
+        let entry = HELP_ENTRIES.iter().find(|e| e.action == HelpAction::TabNew)
             .expect("TabNewエントリがHELP_ENTRIESに存在すること");
-        assert_eq!(
-            entry.canonical_key, ":tabnew",
-            ":tabnewのcanonical_keyは\":tabnew\"であること"
-        );
+        assert_eq!(entry.canonical_key, ":tabnew", ":tabnewのcanonical_keyは\":tabnew\"であること");
     }
 
     #[test]
@@ -469,11 +315,7 @@ mod tests {
             assert_eq!(action, None, "'{}'入力後はまだアクションなし", ch);
         }
         let action = append_key(&mut buf, "w");
-        assert_eq!(
-            action,
-            Some(HelpAction::TabNew),
-            ":tabnew完全入力でTabNewが返ること"
-        );
+        assert_eq!(action, Some(HelpAction::TabNew), ":tabnew完全入力でTabNewが返ること");
         assert!(buf.is_empty(), "完全一致後バッファがクリアされること");
     }
 }

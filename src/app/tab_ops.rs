@@ -36,13 +36,11 @@ impl App {
     /// クローンを避けるため、self.linesとtabs[active_tab].0、self.line_intonationsとtabs[active_tab].1を入れ替える。
     /// 呼び出し後、tabs[active_tab].0/1には正しいlines/line_intonationsが、self.lines/self.line_intonationsには古いスロット値が入る。
     fn save_current_tab(&mut self) {
-        if let Some((tab_lines, tab_intonations, tab_cursor, tab_folded)) =
-            self.tabs.get_mut(self.active_tab)
-        {
+        if let Some((tab_lines, tab_intonations, tab_cursor, tab_folded)) = self.tabs.get_mut(self.active_tab) {
             std::mem::swap(&mut self.lines, tab_lines);
             std::mem::swap(&mut self.line_intonations, tab_intonations);
-            *tab_cursor = self.cursor;
-            *tab_folded = self.folded;
+            *tab_cursor  = self.cursor;
+            *tab_folded  = self.folded;
         }
     }
 
@@ -53,7 +51,7 @@ impl App {
         // 新タブ用の空エントリを追加し、アクティブにする
         self.tabs.push((vec![], vec![], 0, false));
         self.active_tab = self.tabs.len() - 1;
-        self.lines = vec![String::new()];
+        self.lines  = vec![String::new()];
         self.line_intonations = vec![None];
         self.cursor = 0;
         self.folded = false;
@@ -63,14 +61,12 @@ impl App {
     /// gt: 次のタブに移動する（最後のタブなら最初に戻る）。
     pub fn tab_next(&mut self) {
         self.reset_pending_prefixes();
-        if self.tabs.len() <= 1 {
-            return;
-        }
+        if self.tabs.len() <= 1 { return; }
         // 現在タブをswapで保存
         self.save_current_tab();
         // 次タブのlinesをmem::takeで取り出してself.linesに設定
         self.active_tab = (self.active_tab + 1) % self.tabs.len();
-        self.lines = std::mem::take(&mut self.tabs[self.active_tab].0);
+        self.lines  = std::mem::take(&mut self.tabs[self.active_tab].0);
         self.line_intonations = std::mem::take(&mut self.tabs[self.active_tab].1);
         self.cursor = self.tabs[self.active_tab].2;
         self.folded = self.tabs[self.active_tab].3;
@@ -82,18 +78,12 @@ impl App {
     /// gT: 前のタブに移動する（最初のタブなら最後に移動する）。
     pub fn tab_prev(&mut self) {
         self.reset_pending_prefixes();
-        if self.tabs.len() <= 1 {
-            return;
-        }
+        if self.tabs.len() <= 1 { return; }
         // 現在タブをswapで保存
         self.save_current_tab();
         // 前タブのlinesをmem::takeで取り出してself.linesに設定
-        self.active_tab = if self.active_tab == 0 {
-            self.tabs.len() - 1
-        } else {
-            self.active_tab - 1
-        };
-        self.lines = std::mem::take(&mut self.tabs[self.active_tab].0);
+        self.active_tab = if self.active_tab == 0 { self.tabs.len() - 1 } else { self.active_tab - 1 };
+        self.lines  = std::mem::take(&mut self.tabs[self.active_tab].0);
         self.line_intonations = std::mem::take(&mut self.tabs[self.active_tab].1);
         self.cursor = self.tabs[self.active_tab].2;
         self.folded = self.tabs[self.active_tab].3;
@@ -104,18 +94,14 @@ impl App {
 
     /// 指定インデックスのタブに直接移動する（インデックスが範囲外の場合は何もしない）。
     pub fn switch_to_tab(&mut self, index: usize) {
-        if index >= self.tabs.len() {
-            return;
-        }
-        if index == self.active_tab {
-            return;
-        }
+        if index >= self.tabs.len() { return; }
+        if index == self.active_tab { return; }
         self.save_current_tab();
         self.active_tab = index;
-        self.lines = std::mem::take(&mut self.tabs[self.active_tab].0);
-        self.line_intonations = std::mem::take(&mut self.tabs[self.active_tab].1);
-        self.cursor = self.tabs[self.active_tab].2;
-        self.folded = self.tabs[self.active_tab].3;
+        self.lines             = std::mem::take(&mut self.tabs[self.active_tab].0);
+        self.line_intonations  = std::mem::take(&mut self.tabs[self.active_tab].1);
+        self.cursor            = self.tabs[self.active_tab].2;
+        self.folded            = self.tabs[self.active_tab].3;
         self.normalize_cursor_for_fold();
         self.restart_background_prefetch();
     }
@@ -152,9 +138,7 @@ impl App {
         }
         // タブ1以降の状態を適用する
         for (i, tab_state) in state.tabs.iter().enumerate().skip(1) {
-            if i >= num_tabs {
-                break;
-            }
+            if i >= num_tabs { break; }
             let max_cursor = self.tabs[i].0.len().saturating_sub(1);
             self.tabs[i].2 = tab_state.cursor.min(max_cursor);
             self.tabs[i].3 = tab_state.folded;

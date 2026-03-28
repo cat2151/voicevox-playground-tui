@@ -7,54 +7,44 @@ use crate::{speakers, tag};
 
 /// audio_queryのJSONをそのまま返す（イントネーション編集用）。
 pub async fn get_audio_query(text: &str, speaker_id: u32) -> Result<serde_json::Value> {
-    let table = speakers::get();
-    let base_url = table
-        .speaker_base_url
+    let table    = speakers::get();
+    let base_url = table.speaker_base_url
         .get(&speaker_id)
         .map(|s| s.as_str())
-        .ok_or_else(|| {
-            anyhow::anyhow!("speaker_id {speaker_id} に対応するエンジンが見つからない")
-        })?;
+        .ok_or_else(|| anyhow::anyhow!("speaker_id {speaker_id} に対応するエンジンが見つからない"))?;
     let client = reqwest::Client::new();
     let query: serde_json::Value = client
         .post(format!("{base_url}/audio_query"))
         .query(&[("text", text), ("speaker", &speaker_id.to_string())])
-        .send()
-        .await?
+        .send().await?
         .error_for_status()?
-        .json()
-        .await?;
+        .json().await?;
     Ok(query)
 }
 
 /// 指定されたaudio_queryのJSONを使って合成する（イントネーション編集用）。
 pub async fn synthesize_with_query(query: &serde_json::Value, speaker_id: u32) -> Result<Vec<u8>> {
-    let table = speakers::get();
-    let base_url = table
-        .speaker_base_url
+    let table    = speakers::get();
+    let base_url = table.speaker_base_url
         .get(&speaker_id)
         .map(|s| s.as_str())
-        .ok_or_else(|| {
-            anyhow::anyhow!("speaker_id {speaker_id} に対応するエンジンが見つからない")
-        })?;
+        .ok_or_else(|| anyhow::anyhow!("speaker_id {speaker_id} に対応するエンジンが見つからない"))?;
     let client = reqwest::Client::new();
     let wav = client
         .post(format!("{base_url}/synthesis"))
         .query(&[("speaker", speaker_id.to_string())])
         .header("Content-Type", "application/json")
         .body(serde_json::to_string(query)?)
-        .send()
-        .await?
+        .send().await?
         .error_for_status()?
-        .bytes()
-        .await?;
+        .bytes().await?;
     Ok(wav.to_vec())
 }
 
 /// audio_queryのJSONからモーラテキストとpitch値を抽出する。
 pub fn extract_mora_data(query: &serde_json::Value) -> (Vec<String>, Vec<f64>) {
     let mut mora_texts = Vec::new();
-    let mut pitches = Vec::new();
+    let mut pitches    = Vec::new();
     if let Some(accent_phrases) = query["accent_phrases"].as_array() {
         for phrase in accent_phrases {
             if let Some(moras) = phrase["moras"].as_array() {
@@ -86,35 +76,28 @@ pub fn set_mora_pitches(query: &mut serde_json::Value, pitches: &[f64]) {
 }
 
 pub async fn synthesize(text: &str, speaker_id: u32) -> Result<Vec<u8>> {
-    let table = speakers::get();
-    let base_url = table
-        .speaker_base_url
+    let table    = speakers::get();
+    let base_url = table.speaker_base_url
         .get(&speaker_id)
         .map(|s| s.as_str())
-        .ok_or_else(|| {
-            anyhow::anyhow!("speaker_id {speaker_id} に対応するエンジンが見つからない")
-        })?;
-    let client = reqwest::Client::new();
+        .ok_or_else(|| anyhow::anyhow!("speaker_id {speaker_id} に対応するエンジンが見つからない"))?;
+    let client   = reqwest::Client::new();
 
     let query: Value = client
         .post(format!("{base_url}/audio_query"))
         .query(&[("text", text), ("speaker", &speaker_id.to_string())])
-        .send()
-        .await?
+        .send().await?
         .error_for_status()?
-        .json()
-        .await?;
+        .json().await?;
 
     let wav = client
         .post(format!("{base_url}/synthesis"))
         .query(&[("speaker", speaker_id.to_string())])
         .header("Content-Type", "application/json")
         .body(serde_json::to_string(&query)?)
-        .send()
-        .await?
+        .send().await?
         .error_for_status()?
-        .bytes()
-        .await?;
+        .bytes().await?;
 
     Ok(wav.to_vec())
 }
@@ -122,9 +105,7 @@ pub async fn synthesize(text: &str, speaker_id: u32) -> Result<Vec<u8>> {
 /// タグ付き行を解析してセグメントごとに合成し、WAVを連結して返す。
 pub async fn synthesize_line(line: &str) -> Result<Vec<u8>> {
     let segments = tag::parse_line(line);
-    if segments.is_empty() {
-        return Ok(vec![]);
-    }
+    if segments.is_empty() { return Ok(vec![]); }
 
     let mut wavs = Vec::new();
     for (text, ctx) in &segments {
@@ -134,20 +115,15 @@ pub async fn synthesize_line(line: &str) -> Result<Vec<u8>> {
 }
 
 fn concat_wavs(wavs: Vec<Vec<u8>>) -> Vec<u8> {
-    if wavs.is_empty() {
-        return vec![];
-    }
-    if wavs.len() == 1 {
-        return wavs.into_iter().next().unwrap();
-    }
+    if wavs.is_empty() { return vec![]; }
+    if wavs.len() == 1 { return wavs.into_iter().next().unwrap(); }
     const HDR: usize = 44;
-    let pcm: Vec<u8> = wavs
-        .iter()
+    let pcm: Vec<u8> = wavs.iter()
         .filter(|w| w.len() > HDR)
         .flat_map(|w| w[HDR..].iter().copied())
         .collect();
     let mut out = wavs[0][..HDR].to_vec();
-    let total = pcm.len() as u32;
+    let total   = pcm.len() as u32;
     out[4..8].copy_from_slice(&(36 + total).to_le_bytes());
     out[40..44].copy_from_slice(&total.to_le_bytes());
     out.extend_from_slice(&pcm);
@@ -159,9 +135,7 @@ mod tests {
     use super::*;
 
     fn make_query_with_pitches(texts: &[&str], pitches: &[f64]) -> serde_json::Value {
-        let moras: Vec<serde_json::Value> = texts
-            .iter()
-            .zip(pitches.iter())
+        let moras: Vec<serde_json::Value> = texts.iter().zip(pitches.iter())
             .map(|(&t, &p)| serde_json::json!({ "text": t, "pitch": p }))
             .collect();
         serde_json::json!({ "accent_phrases": [{ "moras": moras }] })
@@ -171,7 +145,7 @@ mod tests {
     fn extract_mora_data_returns_texts_and_pitches() {
         let query = make_query_with_pitches(&["ず", "ん", "だ"], &[5.87, 6.0, 0.0]);
         let (texts, pitches) = extract_mora_data(&query);
-        assert_eq!(texts, vec!["ず", "ん", "だ"]);
+        assert_eq!(texts,   vec!["ず", "ん", "だ"]);
         assert_eq!(pitches, vec![5.87, 6.0, 0.0]);
     }
 
