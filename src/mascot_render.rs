@@ -2,6 +2,8 @@ use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, Sender};
+use std::sync::OnceLock;
 use std::thread;
 use std::time::Duration;
 
@@ -56,34 +58,16 @@ pub fn sync_playback(line: &str, wav: &[u8]) {
     let duration_ms = wav_duration_ms(wav).unwrap_or(FALLBACK_DURATION_MS);
     let char_name = mascot_char_name_for_line(&line);
 
-    thread::spawn(move || {
-        if send_request(server_address(), "POST", "/show", None).is_err() {
-            return;
-        }
-
-        if char_name.as_deref() == Some(ZUNDAMON_CHAR_NAME) {
-            if let Some(png_path) = zundamon_png_path() {
-                let body = serde_json::to_vec(&ChangeSkinRequest {
-                    png_path: &png_path,
-                })
-                .ok();
-                if let Some(body) = body.as_deref() {
-                    let _ = send_request(server_address(), "POST", "/change-skin", Some(body));
-                }
-            }
-        }
-
-        let request = MotionTimelineRequest {
-            steps: vec![MotionTimelineStep {
-                kind: MotionTimelineKind::Shake,
-                duration_ms,
-                fps: TIMELINE_FPS,
-            }],
-        };
-        if let Ok(body) = serde_json::to_vec(&request) {
-            let _ = send_request(server_address(), "POST", "/timeline", Some(&body));
-        }
+    let _ = mascot_worker_tx().send(MascotPlaybackSync {
+        char_name,
+        duration_ms,
     });
+}
+
+#[derive(Debug)]
+struct MascotPlaybackSync {
+    char_name: Option<String>,
+    duration_ms: u64,
 }
 
 fn mascot_char_name_for_line(line: &str) -> Option<String> {
@@ -168,6 +152,46 @@ fn server_address() -> SocketAddr {
     SocketAddr::from(([127, 0, 0, 1], MASCOT_RENDER_SERVER_PORT))
 }
 
+fn mascot_worker_tx() -> &'static Sender<MascotPlaybackSync> {
+    static TX: OnceLock<Sender<MascotPlaybackSync>> = OnceLock::new();
+    TX.get_or_init(|| {
+        let (tx, rx) = mpsc::channel::<MascotPlaybackSync>();
+        thread::spawn(move || {
+            while let Ok(sync) = rx.recv() {
+                handle_playback_sync(sync);
+            }
+        });
+        tx
+    })
+}
+
+fn handle_playback_sync(sync: MascotPlaybackSync) {
+    let _ = send_request(server_address(), "POST", "/show", None);
+
+    if sync.char_name.as_deref() == Some(ZUNDAMON_CHAR_NAME) {
+        if let Some(png_path) = zundamon_png_path() {
+            let body = serde_json::to_vec(&ChangeSkinRequest {
+                png_path: &png_path,
+            })
+            .ok();
+            if let Some(body) = body.as_deref() {
+                let _ = send_request(server_address(), "POST", "/change-skin", Some(body));
+            }
+        }
+    }
+
+    let request = MotionTimelineRequest {
+        steps: vec![MotionTimelineStep {
+            kind: MotionTimelineKind::Shake,
+            duration_ms: sync.duration_ms,
+            fps: TIMELINE_FPS,
+        }],
+    };
+    if let Ok(body) = serde_json::to_vec(&request) {
+        let _ = send_request(server_address(), "POST", "/timeline", Some(&body));
+    }
+}
+
 fn send_request(
     address: SocketAddr,
     method: &str,
@@ -202,7 +226,8 @@ fn read_response(stream: TcpStream) -> Result<(), ()> {
     let mut reader = BufReader::new(stream);
     let mut status_line = String::new();
     reader.read_line(&mut status_line).map_err(|_| ())?;
-    let status_code = status_line.split_whitespace()
+    let status_code = status_line
+        .split_whitespace()
         .nth(1)
         .and_then(|value| value.parse::<u16>().ok())
         .ok_or(())?;
@@ -237,7 +262,13 @@ fn read_response(stream: TcpStream) -> Result<(), ()> {
 mod tests {
     use super::*;
     use crate::speakers;
+    use std::sync::{Mutex, OnceLock};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     #[test]
     fn mascot_char_name_for_plain_line_uses_default_character() {
@@ -269,6 +300,7 @@ mod tests {
 
     #[test]
     fn env_png_path_prefers_existing_png_file() {
+        let _guard = env_lock().lock().unwrap();
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()

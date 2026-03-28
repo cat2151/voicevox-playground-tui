@@ -19,9 +19,9 @@ pub fn spawn_player(mut rx: mpsc::Receiver<PlayRequest>) {
 
         while let Some(request) = rx.blocking_recv() {
             sink.stop(); // 再生中のものを即中断
-            crate::mascot_render::sync_playback(&request.source_text, &request.wav);
-            match Decoder::new(Cursor::new(request.wav)) {
+            match Decoder::new(Cursor::new(request.wav.clone())) {
                 Ok(source) => {
+                    crate::mascot_render::sync_playback(&request.source_text, &request.wav);
                     sink.append(source);
                     sink.play();
                 }
