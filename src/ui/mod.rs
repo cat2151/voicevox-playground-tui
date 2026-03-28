@@ -23,7 +23,7 @@ pub(super) const CURSOR_INSERT: Color = Color::Rgb(102, 217, 232);
 
 /// イントネーション編集の列カラー（隣接列を異なる色にする）
 pub(super) fn column_color(i: usize) -> Color {
-    if i % 2 == 0 {
+    if i.is_multiple_of(2) {
         GREEN
     } else {
         YELLOW

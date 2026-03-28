@@ -47,6 +47,11 @@ pub struct IntonationLineData {
     pub speaker_id: u32,
 }
 
+pub type LineIntonations = Vec<Option<IntonationLineData>>;
+pub type AllTabLines = Vec<Vec<String>>;
+pub type AllTabIntonations = Vec<LineIntonations>;
+pub type TabSlot = (Vec<String>, LineIntonations, usize, bool);
+
 /// アップデート実行方法の選択結果
 #[derive(Debug, Clone, PartialEq)]
 pub enum UpdateAction {
@@ -94,7 +99,7 @@ pub struct App {
     /// Normalモードの数値プレフィックスバッファ（例: "10j" の "10" 部分）
     pub count_buf: String,
     /// タブごとの (lines, line_intonations, cursor, folded) を保存するリスト（アクティブタブ含む全タブ）
-    pub tabs: Vec<(Vec<String>, Vec<Option<IntonationLineData>>, usize, bool)>,
+    pub tabs: Vec<TabSlot>,
     /// 現在アクティブなタブのインデックス（0始まり）
     pub active_tab: usize,
     /// コマンドモード（":tabnew" など）の入力バッファ
@@ -103,7 +108,7 @@ pub struct App {
     pub help_key_buf: String,
     // ── イントネーション編集 ──────────────────────────────────────────────────────
     /// 行インデックスごとのイントネーション編集データ（lines と同じ長さで同期される）
-    pub line_intonations: Vec<Option<IntonationLineData>>,
+    pub line_intonations: LineIntonations,
     /// イントネーション編集セッション中のspeaker_id
     pub intonation_speaker_id: u32,
     /// イントネーション編集セッション中のモーラ表示テキスト一覧
@@ -141,10 +146,7 @@ impl App {
     /// 複数タブの初期内容を指定してアプリを生成する。
     /// `all_lines[0]` がタブ1（history.txt）、`all_lines[1]` がタブ2（history2.txt）… に対応する。
     /// `all_intonations` は対応するタブのイントネーションデータ（存在しなければ空 Vec でよい）。
-    pub fn new_with_tabs(
-        all_lines: Vec<Vec<String>>,
-        all_intonations: Vec<Vec<Option<IntonationLineData>>>,
-    ) -> Self {
+    pub fn new_with_tabs(all_lines: AllTabLines, all_intonations: AllTabIntonations) -> Self {
         let mut all_lines = all_lines;
         if all_lines.is_empty() {
             all_lines.push(vec![String::new()]);
@@ -186,10 +188,7 @@ impl App {
     }
 
     /// `new` と同様だが、初期イントネーションデータも受け取る。
-    fn new_with_intonations(
-        lines: Vec<String>,
-        intonations: Vec<Option<IntonationLineData>>,
-    ) -> Self {
+    fn new_with_intonations(lines: Vec<String>, intonations: LineIntonations) -> Self {
         let mut app = Self::new(lines);
         // 渡されたイントネーションデータを行数に合わせてマージする
         for (i, slot) in intonations.into_iter().enumerate() {

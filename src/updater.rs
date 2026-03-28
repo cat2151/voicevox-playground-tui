@@ -134,6 +134,7 @@ fn spawn_updater_process(relaunch_command: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+#[cfg(not(target_os = "windows"))]
 async fn run_install() -> Result<()> {
     let install_command = install_command();
     println!("{install_command}");
@@ -164,7 +165,7 @@ pub async fn run_foreground_update() -> Result<()> {
         spawn_updater_process(Some("vpt")).map_err(|e| {
             anyhow::anyhow!("バッチファイルアップデーターの起動に失敗しました: {}", e)
         })?;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -192,7 +193,7 @@ pub async fn run_self_update() -> Result<()> {
                 e
             )
         })?;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(target_os = "windows"))]
