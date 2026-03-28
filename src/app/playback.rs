@@ -20,6 +20,8 @@ impl App {
             .map(|q| format!("intonation:{}:{}", speaker_id, q))
     }
 
+    /// 指定行の内容を取得し、キャッシュ済み音声または fetch/intonation 合成結果を再生する。
+    /// 空行や範囲外インデックスは無視する。
     pub(super) async fn fetch_and_play(&mut self, index: usize) {
         if index >= self.lines.len() || self.lines[index].trim().is_empty() {
             return;
@@ -187,6 +189,8 @@ impl App {
 
     /// 現在行のfetch完了後、表示範囲内のcacheのない行を裏で1行ずつfetchする。
     /// 前回のタスクがあればキャンセルしてから新たに起動する。
+    /// 現在のカーソル位置と折りたたみ状態に合わせて、表示範囲の先読みprefetchタスクを再起動する。
+    /// 既存タスクがあれば中断してから新しいタスクを起動する。
     pub(super) fn restart_background_prefetch(&mut self) {
         if let Some(h) = self.bg_prefetch_handle.take() {
             h.abort();
