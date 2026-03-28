@@ -23,7 +23,7 @@ fn compute_prefetch_targets_within_window() {
     let targets = compute_prefetch_targets(5, 4, &lines);
     for &t in &targets {
         assert!(
-            t >= 3 && t < 7,
+            (3..7).contains(&t),
             "target {} は表示ウィンドウ[3,7)内にあるべき",
             t
         );

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 
-use crate::app::IntonationLineData;
+use crate::app::{AllTabIntonations, AllTabLines, IntonationLineData, LineIntonations};
 
 /// タブごとのセッション状態（カーソル行番号・折りたたみ状態）。
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -69,7 +69,7 @@ fn format_with_pitches(text: &str, pitches: &[f64]) -> String {
 /// 指定タブの履歴ファイルをロードし、行テキストとイントネーションデータを返す。
 /// 各行末尾の `\t{"pitches":[...]}` サフィックスからイントネーションを復元する。
 /// ファイルがなければ None を返す。
-fn load_tab(tab_index: usize) -> Result<Option<(Vec<String>, Vec<Option<IntonationLineData>>)>> {
+fn load_tab(tab_index: usize) -> Result<Option<(Vec<String>, LineIntonations)>> {
     let path = history_path_for_tab(tab_index);
     if !path.exists() {
         return Ok(None);
@@ -103,7 +103,7 @@ fn load_tab(tab_index: usize) -> Result<Option<(Vec<String>, Vec<Option<Intonati
 /// タブのイントネーションデータは各行末尾の `\t{"pitches":[...]}` サフィックスから復元する。
 /// tab1はhistory.txt、tab2はhistory2.txt … と連番で存在する分だけロードする。
 /// ファイルが1つもなければ空行1つのタブを1つ返す。
-pub fn load_all() -> Result<(Vec<Vec<String>>, Vec<Vec<Option<IntonationLineData>>>)> {
+pub fn load_all() -> Result<(AllTabLines, AllTabIntonations)> {
     let mut all_lines = Vec::new();
     let mut all_intonations = Vec::new();
     let mut tab_index = 0;
