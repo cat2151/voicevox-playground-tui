@@ -49,7 +49,10 @@ fn parse_config_toml(content: &str) -> Result<EngineConfig> {
 
     let raw: RawConfig = toml::from_str(content)?;
     Ok(EngineConfig {
-        voicevox_path: raw.voicevox_path.filter(|s| !s.is_empty()).map(PathBuf::from),
+        voicevox_path: raw
+            .voicevox_path
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from),
         voicevox_nemo_path: raw
             .voicevox_nemo_path
             .filter(|s| !s.is_empty())

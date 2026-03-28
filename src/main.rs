@@ -5,6 +5,7 @@ mod config;
 mod engine_launcher;
 mod fetch;
 mod history;
+mod mascot_render;
 mod player;
 mod speakers;
 mod tag;

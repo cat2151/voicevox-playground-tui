@@ -20,7 +20,7 @@ use tui_textarea::TextArea;
 
 use crate::background_prefetch;
 use crate::fetch::{FetchRequest, IsFetching, WavCache};
-use crate::player;
+use crate::player::{self, PlayRequest};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mode {
@@ -38,11 +38,11 @@ pub enum Mode {
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct IntonationLineData {
     /// 合成に使うaudio_query JSON（pitch値が編集済み）
-    pub query:      serde_json::Value,
+    pub query: serde_json::Value,
     /// モーラ表示テキスト一覧
     pub mora_texts: Vec<String>,
     /// 現在のpitch値一覧
-    pub pitches:    Vec<f64>,
+    pub pitches: Vec<f64>,
     /// 合成に使うspeaker_id
     pub speaker_id: u32,
 }
@@ -55,30 +55,30 @@ pub enum UpdateAction {
 }
 
 pub struct App {
-    pub lines:         Vec<String>,
-    pub cursor:        usize,
-    pub textarea:      TextArea<'static>,
-    pub mode:          Mode,
+    pub lines: Vec<String>,
+    pub cursor: usize,
+    pub textarea: TextArea<'static>,
+    pub mode: Mode,
     /// キャッシュキー = 行文字列（インデックスではない）
-    pub cache:         WavCache,
-    pub status_msg:    String,
-    pub fetch_tx:      mpsc::Sender<FetchRequest>,
-    pub play_tx:       mpsc::Sender<Vec<u8>>,
+    pub cache: WavCache,
+    pub status_msg: String,
+    pub fetch_tx: mpsc::Sender<FetchRequest>,
+    pub play_tx: mpsc::Sender<PlayRequest>,
     pub visible_lines: usize,
-    pub pending_d:     bool,
+    pub pending_d: bool,
     /// "z"キー待機中（zm/zrのプレフィックス）
-    pub pending_z:     bool,
+    pub pending_z: bool,
     /// "g"キー待機中（gt/gTのプレフィックス）
-    pub pending_g:     bool,
+    pub pending_g: bool,
     /// `"`キー待機中（レジスタ指定のプレフィックス）
     pub pending_quote: bool,
     /// `"+`入力済み（クリップボードペーストのプレフィックス）
     pub pending_clipboard: bool,
-    pub yank_buf:      Option<String>,
+    pub yank_buf: Option<String>,
     /// 折りたたみ中かどうか（行頭spaceのある行を非表示にする）
-    pub folded:        bool,
+    pub folded: bool,
     /// fetchワーカーがAPI呼び出し中かどうか
-    pub is_fetching:   IsFetching,
+    pub is_fetching: IsFetching,
     /// アップデートが利用可能かどうか（バックグラウンドチェックがセットする）
     pub update_available: Arc<AtomicBool>,
     /// ユーザーが選択したアップデート実行方法
@@ -94,47 +94,47 @@ pub struct App {
     /// Normalモードの数値プレフィックスバッファ（例: "10j" の "10" 部分）
     pub count_buf: String,
     /// タブごとの (lines, line_intonations, cursor, folded) を保存するリスト（アクティブタブ含む全タブ）
-    pub tabs:           Vec<(Vec<String>, Vec<Option<IntonationLineData>>, usize, bool)>,
+    pub tabs: Vec<(Vec<String>, Vec<Option<IntonationLineData>>, usize, bool)>,
     /// 現在アクティブなタブのインデックス（0始まり）
-    pub active_tab:     usize,
+    pub active_tab: usize,
     /// コマンドモード（":tabnew" など）の入力バッファ
-    pub command_buf:    String,
+    pub command_buf: String,
     /// ヘルプモードで入力中のキーバッファ（前方一致ハイライト・完全一致実行に使う）
-    pub help_key_buf:   String,
+    pub help_key_buf: String,
     // ── イントネーション編集 ──────────────────────────────────────────────────────
     /// 行インデックスごとのイントネーション編集データ（lines と同じ長さで同期される）
-    pub line_intonations:      Vec<Option<IntonationLineData>>,
+    pub line_intonations: Vec<Option<IntonationLineData>>,
     /// イントネーション編集セッション中のspeaker_id
     pub intonation_speaker_id: u32,
     /// イントネーション編集セッション中のモーラ表示テキスト一覧
     pub intonation_mora_texts: Vec<String>,
     /// イントネーション編集セッション中のpitch値一覧（編集可能）
-    pub intonation_pitches:    Vec<f64>,
+    pub intonation_pitches: Vec<f64>,
     /// イントネーション編集セッション中のaudio_query JSON（pitch値適用済み）
-    pub intonation_query:      serde_json::Value,
+    pub intonation_query: serde_json::Value,
     /// 現在選択中のモーラインデックス（a-z/A-Zキーで更新）
-    pub intonation_cursor:     usize,
+    pub intonation_cursor: usize,
     /// 数値直接入力バッファ（非空のとき数値入力サブモード）
-    pub intonation_num_buf:    String,
+    pub intonation_num_buf: String,
     /// イントネーション編集セッション開始時のpitch値スナップショット（iキーで初期化に使う）
     pub intonation_initial_pitches: Vec<f64>,
     /// a-zA-Zキーによる再生デバウンス期限（1秒）
-    pub intonation_debounce:   Option<Instant>,
+    pub intonation_debounce: Option<Instant>,
     /// イントネーション合成再生タスクのハンドル（新規再生時にabortして上書き）
     pub intonation_play_handle: Option<JoinHandle<()>>,
     // ── イントネーション擬似折れ線グラフ（マウスイベント処理用） ──────────────────
     /// グラフ描画エリアの左上x座標（絶対座標）
-    pub intonation_graph_x:         u16,
+    pub intonation_graph_x: u16,
     /// グラフ描画エリアの左上y座標（絶対座標）
-    pub intonation_graph_y:         u16,
+    pub intonation_graph_y: u16,
     /// グラフ描画エリアの高さ（行数）
-    pub intonation_graph_h:         u16,
+    pub intonation_graph_h: u16,
     /// グラフの先頭行（row 0）に対応するpitch値
     pub intonation_graph_pitch_top: f64,
     /// 各モーラ列の開始x座標（絶対座標）
-    pub intonation_mora_col_x:      Vec<u16>,
+    pub intonation_mora_col_x: Vec<u16>,
     /// 各モーラ列の幅（端末列数）
-    pub intonation_mora_col_w:      Vec<u16>,
+    pub intonation_mora_col_w: Vec<u16>,
 }
 
 impl App {
@@ -142,7 +142,7 @@ impl App {
     /// `all_lines[0]` がタブ1（history.txt）、`all_lines[1]` がタブ2（history2.txt）… に対応する。
     /// `all_intonations` は対応するタブのイントネーションデータ（存在しなければ空 Vec でよい）。
     pub fn new_with_tabs(
-        all_lines:       Vec<Vec<String>>,
+        all_lines: Vec<Vec<String>>,
         all_intonations: Vec<Vec<Option<IntonationLineData>>>,
     ) -> Self {
         let mut all_lines = all_lines;
@@ -153,15 +153,24 @@ impl App {
 
         // 最初のタブの内容でアプリを初期化する
         let first_lines = utils::compress_trailing_empty(all_lines.remove(0));
-        let first_intonations = if all_intonations.is_empty() { vec![] } else { all_intonations.remove(0) };
+        let first_intonations = if all_intonations.is_empty() {
+            vec![]
+        } else {
+            all_intonations.remove(0)
+        };
         let mut app = Self::new_with_intonations(first_lines, first_intonations);
 
         // 残りのタブをtabsに追加する（タブ0のスロットは既に確保済み）
         for (i, extra_lines) in all_lines.into_iter().enumerate() {
             let extra_lines = utils::compress_trailing_empty(extra_lines);
-            let extra_cursor = if extra_lines.is_empty() { 0 } else { extra_lines.len() - 1 };
+            let extra_cursor = if extra_lines.is_empty() {
+                0
+            } else {
+                extra_lines.len() - 1
+            };
             // 対応するイントネーションデータがあれば使い、なければ全Noneで埋める
-            let mut extra_intonations: Vec<Option<IntonationLineData>> = vec![None; extra_lines.len()];
+            let mut extra_intonations: Vec<Option<IntonationLineData>> =
+                vec![None; extra_lines.len()];
             if let Some(loaded) = all_intonations.get(i) {
                 for (j, slot) in loaded.iter().enumerate() {
                     if j < extra_intonations.len() {
@@ -169,14 +178,18 @@ impl App {
                     }
                 }
             }
-            app.tabs.push((extra_lines, extra_intonations, extra_cursor, false));
+            app.tabs
+                .push((extra_lines, extra_intonations, extra_cursor, false));
         }
 
         app
     }
 
     /// `new` と同様だが、初期イントネーションデータも受け取る。
-    fn new_with_intonations(lines: Vec<String>, intonations: Vec<Option<IntonationLineData>>) -> Self {
+    fn new_with_intonations(
+        lines: Vec<String>,
+        intonations: Vec<Option<IntonationLineData>>,
+    ) -> Self {
         let mut app = Self::new(lines);
         // 渡されたイントネーションデータを行数に合わせてマージする
         for (i, slot) in intonations.into_iter().enumerate() {
@@ -192,33 +205,40 @@ impl App {
         let line_intonations = vec![None; lines.len()];
         let cache: WavCache = Arc::new(Mutex::new(HashMap::new()));
 
-        let (play_tx, play_rx) = mpsc::channel::<Vec<u8>>(8);
+        let (play_tx, play_rx) = mpsc::channel::<PlayRequest>(8);
         player::spawn_player(play_rx);
 
         let is_fetching: IsFetching = Arc::new(AtomicBool::new(false));
         let (fetch_tx, fetch_rx) = mpsc::channel::<FetchRequest>(64);
-        crate::fetch::spawn_worker(fetch_rx, Arc::clone(&cache), play_tx.clone(), Arc::clone(&is_fetching));
+        crate::fetch::spawn_worker(
+            fetch_rx,
+            Arc::clone(&cache),
+            play_tx.clone(),
+            Arc::clone(&is_fetching),
+        );
 
         let cursor = if lines.is_empty() { 0 } else { lines.len() - 1 };
         // tabs[0] のlinesはプレースホルダー（実際のlinesはself.linesに保持される）。
         // タブ切り替え時にmem::swapでlinesを交換するため、初期値は空vecで良い。
         let tabs = vec![(vec![], vec![], 0usize, false)];
         Self {
-            lines, cursor,
+            lines,
+            cursor,
             line_intonations,
-            textarea:      TextArea::default(),
-            mode:          Mode::Normal,
+            textarea: TextArea::default(),
+            mode: Mode::Normal,
             cache,
-            status_msg:    String::from("ready"),
-            fetch_tx, play_tx,
+            status_msg: String::from("ready"),
+            fetch_tx,
+            play_tx,
             visible_lines: 24,
-            pending_d:     false,
-            pending_z:     false,
-            pending_g:     false,
+            pending_d: false,
+            pending_z: false,
+            pending_g: false,
             pending_quote: false,
             pending_clipboard: false,
-            yank_buf:      None,
-            folded:        false,
+            yank_buf: None,
+            folded: false,
             is_fetching,
             update_available: Arc::new(AtomicBool::new(false)),
             update_action: None,
@@ -228,24 +248,24 @@ impl App {
             focused: true,
             count_buf: String::new(),
             tabs,
-            active_tab:    0,
-            command_buf:   String::new(),
-            help_key_buf:  String::new(),
+            active_tab: 0,
+            command_buf: String::new(),
+            help_key_buf: String::new(),
             intonation_speaker_id: 0,
             intonation_mora_texts: Vec::new(),
-            intonation_pitches:    Vec::new(),
+            intonation_pitches: Vec::new(),
             intonation_initial_pitches: Vec::new(),
-            intonation_query:      serde_json::Value::Null,
-            intonation_cursor:     0,
-            intonation_num_buf:    String::new(),
-            intonation_debounce:   None,
+            intonation_query: serde_json::Value::Null,
+            intonation_cursor: 0,
+            intonation_num_buf: String::new(),
+            intonation_debounce: None,
             intonation_play_handle: None,
-            intonation_graph_x:         0,
-            intonation_graph_y:         0,
-            intonation_graph_h:         0,
+            intonation_graph_x: 0,
+            intonation_graph_y: 0,
+            intonation_graph_h: 0,
             intonation_graph_pitch_top: 0.0,
-            intonation_mora_col_x:      Vec::new(),
-            intonation_mora_col_w:      Vec::new(),
+            intonation_mora_col_x: Vec::new(),
+            intonation_mora_col_w: Vec::new(),
         }
     }
 
@@ -275,9 +295,13 @@ impl App {
 
     /// 折りたたみ時にカーソルが非表示行にある場合、最も近い表示行に移動する。
     fn normalize_cursor_for_fold(&mut self) {
-        if !self.folded { return; }
+        if !self.folded {
+            return;
+        }
         let visible = self.visible_line_indices();
-        if visible.is_empty() || visible.contains(&self.cursor) { return; }
+        if visible.is_empty() || visible.contains(&self.cursor) {
+            return;
+        }
         if let Some(&c) = visible.get(utils::nearest_vis_pos(self.cursor, &visible)) {
             self.cursor = c;
         }
@@ -298,17 +322,29 @@ impl App {
 
     /// イントネーションキャッシュキーを生成する。
     /// シリアライズに失敗した場合は None を返す（キャッシュをスキップする）。
-    pub(crate) fn intonation_cache_key(speaker_id: u32, query: &serde_json::Value) -> Option<String> {
-        serde_json::to_string(query).ok().map(|q| format!("intonation:{}:{}", speaker_id, q))
+    pub(crate) fn intonation_cache_key(
+        speaker_id: u32,
+        query: &serde_json::Value,
+    ) -> Option<String> {
+        serde_json::to_string(query)
+            .ok()
+            .map(|q| format!("intonation:{}:{}", speaker_id, q))
     }
 
     async fn fetch_and_play(&mut self, index: usize) {
-        if index >= self.lines.len() || self.lines[index].trim().is_empty() { return; }
+        if index >= self.lines.len() || self.lines[index].trim().is_empty() {
+            return;
+        }
         // 折りたたみ用の行頭spaceは音声合成に影響しないため、trim_startしてcacheキー・fetchリクエストに使う
         let text = self.lines[index].trim_start().to_owned();
 
         // イントネーション編集済みの場合はキャッシュを確認し、あれば即再生、なければ合成してキャッシュに保存する
-        if let Some(data) = self.line_intonations.get(index).and_then(|d| d.as_ref()).cloned() {
+        if let Some(data) = self
+            .line_intonations
+            .get(index)
+            .and_then(|d| d.as_ref())
+            .cloned()
+        {
             // query が Null の場合は history.txt から復元した pitches-only 状態を示す。
             // この場合は audio_query をAPIから遅延取得し、完全なIntonationLineDataに昇格させてから再生する。
             let data = if data.query.is_null() {
@@ -318,10 +354,22 @@ impl App {
                         // API取得に失敗した場合は通常の合成にフォールスルー
                         let cached = { self.cache.lock().unwrap().get(&text).cloned() };
                         if let Some(wav) = cached {
-                            let _ = self.play_tx.send(wav).await;
+                            let _ = self
+                                .play_tx
+                                .send(PlayRequest {
+                                    wav,
+                                    source_text: text.clone(),
+                                })
+                                .await;
                             self.status_msg = format!("[♪ cached] line {}", index + 1);
                         } else {
-                            let _ = self.fetch_tx.send(FetchRequest { text, play_after: true }).await;
+                            let _ = self
+                                .fetch_tx
+                                .send(FetchRequest {
+                                    text,
+                                    play_after: true,
+                                })
+                                .await;
                             self.status_msg = format!("[fetching...] line {}", index + 1);
                         }
                         return;
@@ -334,22 +382,40 @@ impl App {
             if let Some(cache_key) = Self::intonation_cache_key(data.speaker_id, &data.query) {
                 let cached = { self.cache.lock().unwrap().get(&cache_key).cloned() };
                 if let Some(wav) = cached {
-                    let _ = self.play_tx.send(wav).await;
+                    let _ = self
+                        .play_tx
+                        .send(PlayRequest {
+                            wav,
+                            source_text: text.clone(),
+                        })
+                        .await;
                     self.status_msg = format!("[♬ cached] line {}", index + 1);
                     return;
                 }
             }
-            self.spawn_intonation_play(data.query, data.speaker_id);
+            self.spawn_intonation_play(data.query, data.speaker_id, text.clone());
             self.status_msg = format!("[♬ intonation] line {}", index + 1);
             return;
         }
 
         let cached = { self.cache.lock().unwrap().get(&text).cloned() };
         if let Some(wav) = cached {
-            let _ = self.play_tx.send(wav).await;
+            let _ = self
+                .play_tx
+                .send(PlayRequest {
+                    wav,
+                    source_text: text.clone(),
+                })
+                .await;
             self.status_msg = format!("[♪ cached] line {}", index + 1);
         } else {
-            let _ = self.fetch_tx.send(FetchRequest { text, play_after: true }).await;
+            let _ = self
+                .fetch_tx
+                .send(FetchRequest {
+                    text,
+                    play_after: true,
+                })
+                .await;
             self.status_msg = format!("[fetching...] line {}", index + 1);
         }
     }
@@ -364,9 +430,13 @@ impl App {
         data: &IntonationLineData,
     ) -> Option<IntonationLineData> {
         let line = self.lines.get(index)?.clone();
-        if line.trim().is_empty() { return None; }
+        if line.trim().is_empty() {
+            return None;
+        }
         let mut segments = crate::tag::parse_line(&line);
-        if segments.len() != 1 { return None; }
+        if segments.len() != 1 {
+            return None;
+        }
         let (seg_text, ctx) = segments.swap_remove(0);
         let speaker_id = ctx.speaker_id;
         match crate::voicevox::get_audio_query(&seg_text, speaker_id).await {
@@ -374,7 +444,9 @@ impl App {
                 // 保存済みpitchesを適用した後、queryから再抽出して長さをモーラ数に揃える
                 crate::voicevox::set_mora_pitches(&mut query, &data.pitches);
                 let (mora_texts, applied_pitches) = crate::voicevox::extract_mora_data(&query);
-                if mora_texts.is_empty() { return None; }
+                if mora_texts.is_empty() {
+                    return None;
+                }
                 let resolved = IntonationLineData {
                     query: query.clone(),
                     mora_texts,
@@ -393,7 +465,12 @@ impl App {
     /// イントネーションqueryを使って合成・再生するタスクを起動する。
     /// 前回のタスクがあればabortしてから新しいタスクを起動する（並列実行を防ぐ）。
     /// 合成結果はWavCacheに保存し、次回以降の再生でキャッシュから即時再生できるようにする。
-    pub(super) fn spawn_intonation_play(&mut self, query: serde_json::Value, speaker_id: u32) {
+    pub(super) fn spawn_intonation_play(
+        &mut self,
+        query: serde_json::Value,
+        speaker_id: u32,
+        source_text: String,
+    ) {
         if let Some(h) = self.intonation_play_handle.take() {
             h.abort();
         }
@@ -405,7 +482,7 @@ impl App {
                 if let Some(key) = cache_key {
                     cache.lock().unwrap().insert(key, wav.clone());
                 }
-                let _ = play_tx.send(wav).await;
+                let _ = play_tx.send(PlayRequest { wav, source_text }).await;
             }
         }));
     }
@@ -413,7 +490,10 @@ impl App {
     /// イントネーションキャッシュの古いエントリをすべて削除する。
     /// イントネーション確定時に呼び出し、中間的な pitch 編集で蓄積した不要エントリを解放する。
     pub(super) fn evict_intonation_cache(&mut self) {
-        self.cache.lock().unwrap().retain(|k, _| !k.starts_with("intonation:"));
+        self.cache
+            .lock()
+            .unwrap()
+            .retain(|k, _| !k.starts_with("intonation:"));
     }
 
     /// 現在行のfetch完了後、表示範囲内のcacheのない行を裏で1行ずつfetchする。
@@ -426,27 +506,42 @@ impl App {
         // 通常の行テキストをキーとすると、イントネーション合成結果がキャッシュされないため
         // wait_for_cachedが30秒タイムアウトするまで他の行のprefetchが始まらない。
         let cursor_cache_key = {
-            let intonation_key = self.line_intonations
+            let intonation_key = self
+                .line_intonations
                 .get(self.cursor)
                 .and_then(|d| d.as_ref())
                 .filter(|d| !d.query.is_null())
                 .and_then(|d| Self::intonation_cache_key(d.speaker_id, &d.query));
             // 折りたたみ用の行頭spaceはcacheキーから除外する
-            intonation_key.unwrap_or_else(|| self.lines.get(self.cursor).map(|l| l.trim_start().to_owned()).unwrap_or_default())
+            intonation_key.unwrap_or_else(|| {
+                self.lines
+                    .get(self.cursor)
+                    .map(|l| l.trim_start().to_owned())
+                    .unwrap_or_default()
+            })
         };
         // 折りたたみ時は表示行のみをprefetch対象とする
         let target_texts: Vec<String> = if self.folded {
             let visible_indices = self.visible_line_indices();
-            let visible_texts: Vec<String> = visible_indices.iter().map(|&i| self.lines[i].trim_start().to_owned()).collect();
+            let visible_texts: Vec<String> = visible_indices
+                .iter()
+                .map(|&i| self.lines[i].trim_start().to_owned())
+                .collect();
             let vis_cursor = utils::nearest_vis_pos(self.cursor, &visible_indices);
-            background_prefetch::compute_prefetch_targets(vis_cursor, self.visible_lines, &visible_texts)
-                .into_iter()
-                .map(|idx| visible_texts[idx].clone())
-                .collect()
+            background_prefetch::compute_prefetch_targets(
+                vis_cursor,
+                self.visible_lines,
+                &visible_texts,
+            )
+            .into_iter()
+            .map(|idx| visible_texts[idx].clone())
+            .collect()
         } else {
             // 全行ではなく表示ウィンドウ内の対象行のみをcloneして渡す
             background_prefetch::compute_prefetch_targets(
-                self.cursor, self.visible_lines, &self.lines,
+                self.cursor,
+                self.visible_lines,
+                &self.lines,
             )
             .into_iter()
             .map(|idx| self.lines[idx].trim_start().to_owned())
