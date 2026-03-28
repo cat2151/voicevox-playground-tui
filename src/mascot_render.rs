@@ -202,7 +202,11 @@ fn read_response(stream: TcpStream) -> Result<(), ()> {
     let mut reader = BufReader::new(stream);
     let mut status_line = String::new();
     reader.read_line(&mut status_line).map_err(|_| ())?;
-    if !(status_line.starts_with("HTTP/1.1 200") || status_line.starts_with("HTTP/1.0 200")) {
+    let status_code = status_line.split_whitespace()
+        .nth(1)
+        .and_then(|value| value.parse::<u16>().ok())
+        .ok_or(())?;
+    if !(200..300).contains(&status_code) {
         return Err(());
     }
 
