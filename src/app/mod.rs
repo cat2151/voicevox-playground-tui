@@ -47,10 +47,10 @@ pub struct IntonationLineData {
     pub speaker_id: u32,
 }
 
-pub(crate) type LineIntonations = Vec<Option<IntonationLineData>>;
-pub(crate) type AllTabLines = Vec<Vec<String>>;
-pub(crate) type AllTabIntonations = Vec<LineIntonations>;
-pub(crate) type TabSlot = (Vec<String>, LineIntonations, usize, bool);
+pub type LineIntonations = Vec<Option<IntonationLineData>>;
+pub type AllTabLines = Vec<Vec<String>>;
+pub type AllTabIntonations = Vec<LineIntonations>;
+pub type TabSlot = (Vec<String>, LineIntonations, usize, bool);
 
 /// アップデート実行方法の選択結果
 #[derive(Debug, Clone, PartialEq)]
