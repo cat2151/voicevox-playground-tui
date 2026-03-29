@@ -72,6 +72,7 @@ fn motion_timeline_request_uses_preview_mouth_flap_timing() {
     let preview_request = preview_mouth_flap_timeline_request();
 
     assert_eq!(request.steps.len(), 1);
+    assert_eq!(preview_request.steps.len(), 1);
     assert!(matches!(
         request.steps[0].kind,
         MotionTimelineKind::MouthFlap
