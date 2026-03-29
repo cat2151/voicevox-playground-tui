@@ -150,9 +150,11 @@ fn handle_playback_sync(sync: MascotPlaybackSync) {
 
 fn motion_timeline_request(duration_ms: u64) -> MotionTimelineRequest {
     let mut request = preview_mouth_flap_timeline_request();
-    if let Some(step) = request.steps.first_mut() {
-        step.duration_ms = duration_ms;
-    }
+    let step = request
+        .steps
+        .first_mut()
+        .expect("preview_mouth_flap_timeline_request() must contain a step");
+    step.duration_ms = duration_ms;
     request
 }
 

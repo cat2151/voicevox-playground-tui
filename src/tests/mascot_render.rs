@@ -68,15 +68,17 @@ fn motion_timeline_request_serializes_mouth_flap_kind() {
 
 #[test]
 fn motion_timeline_request_uses_preview_mouth_flap_timing() {
-    let request = motion_timeline_request(5_000);
+    let request = motion_timeline_request(1_234);
     let preview_request = preview_mouth_flap_timeline_request();
 
     assert_eq!(request.steps.len(), 1);
-    assert_eq!(request, preview_request);
     assert!(matches!(
         request.steps[0].kind,
         MotionTimelineKind::MouthFlap
     ));
-    assert_eq!(request.steps[0].duration_ms, 5_000);
+    assert_eq!(preview_request.steps[0].duration_ms, 5_000);
+    assert_eq!(request.steps[0].duration_ms, 1_234);
     assert_eq!(request.steps[0].fps, PREVIEW_MOUTH_FLAP_FPS);
+    assert_eq!(request.steps[0].kind, preview_request.steps[0].kind);
+    assert_eq!(request.steps[0].fps, preview_request.steps[0].fps);
 }
