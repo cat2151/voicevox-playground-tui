@@ -1,3 +1,3 @@
 - プルリクエストは日本語で書くこと
 - Rust formatとlinterを使うこと
-- cat2151のライブラリを使うときはrevision固定を禁止
+- cat2151のライブラリを使うときはcommit hash pinをせず、常に最新mainを利用すること
