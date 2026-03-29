@@ -6,7 +6,8 @@ use std::thread;
 
 use mascot_render_client::{
     change_skin_mascot_render_server, play_timeline_mascot_render_server,
-    preview_mouth_flap_timeline_request, show_mascot_render_server, MotionTimelineRequest,
+    preview_mouth_flap_timeline_request, show_mascot_render_server, MotionTimelineKind,
+    MotionTimelineRequest, MotionTimelineStep, PREVIEW_MOUTH_FLAP_FPS,
 };
 use serde::Deserialize;
 
@@ -150,11 +151,15 @@ fn handle_playback_sync(sync: MascotPlaybackSync) {
 
 fn motion_timeline_request(duration_ms: u64) -> MotionTimelineRequest {
     let mut request = preview_mouth_flap_timeline_request();
-    let step = request
-        .steps
-        .first_mut()
-        .expect("preview_mouth_flap_timeline_request() must contain a step");
-    step.duration_ms = duration_ms;
+    if let Some(step) = request.steps.first_mut() {
+        step.duration_ms = duration_ms;
+    } else {
+        request.steps.push(MotionTimelineStep {
+            kind: MotionTimelineKind::MouthFlap,
+            duration_ms,
+            fps: PREVIEW_MOUTH_FLAP_FPS,
+        });
+    }
     request
 }
 

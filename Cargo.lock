@@ -1079,7 +1079,7 @@ dependencies = [
 [[package]]
 name = "mascot-render-client"
 version = "0.1.0"
-source = "git+https://github.com/cat2151/mascot-render-server#e7ab95ea41a58c1514a0fe48b144794dd420c238"
+source = "git+https://github.com/cat2151/mascot-render-server?rev=e7ab95ea41a58c1514a0fe48b144794dd420c238#e7ab95ea41a58c1514a0fe48b144794dd420c238"
 dependencies = [
  "anyhow",
  "serde",
