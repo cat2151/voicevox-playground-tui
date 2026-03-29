@@ -180,15 +180,19 @@ fn handle_playback_sync(sync: MascotPlaybackSync) {
         }
     }
 
-    let request = MotionTimelineRequest {
-        steps: vec![MotionTimelineStep {
-            kind: MotionTimelineKind::MouthFlap,
-            duration_ms: sync.duration_ms,
-            fps: TIMELINE_FPS,
-        }],
-    };
+    let request = motion_timeline_request(sync.duration_ms);
     if let Ok(body) = serde_json::to_vec(&request) {
         let _ = send_request(server_address(), "POST", "/timeline", Some(&body));
+    }
+}
+
+fn motion_timeline_request(duration_ms: u64) -> MotionTimelineRequest {
+    MotionTimelineRequest {
+        steps: vec![MotionTimelineStep {
+            kind: MotionTimelineKind::MouthFlap,
+            duration_ms,
+            fps: TIMELINE_FPS,
+        }],
     }
 }
 
