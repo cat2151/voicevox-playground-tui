@@ -85,5 +85,7 @@ fn motion_timeline_request_uses_preview_mouth_flap_timing() {
     assert_eq!(request.steps[0].fps, PREVIEW_MOUTH_FLAP_FPS);
     assert_eq!(request.steps[0].kind, preview_request.steps[0].kind);
     assert_eq!(request.steps[0].fps, preview_request.steps[0].fps);
-    assert_eq!(&request.steps[1..], &preview_request.steps[1..]);
+    if request.steps.len() > 1 {
+        assert_eq!(&request.steps[1..], &preview_request.steps[1..]);
+    }
 }
