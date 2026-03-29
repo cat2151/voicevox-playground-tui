@@ -21,4 +21,4 @@ tui-textarea = "0.7"
 arboard      = { version = "3.6.1", default-features = false }
 unicode-width = "0.2"
 toml = "0.8"
-mascot-render-client = { git = "https://github.com/cat2151/mascot-render-server", package = "mascot-render-client", rev = "e7ab95ea41a58c1514a0fe48b144794dd420c238" }
+mascot-render-client = { git = "https://github.com/cat2151/mascot-render-server", package = "mascot-render-client" }
