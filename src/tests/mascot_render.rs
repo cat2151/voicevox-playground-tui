@@ -1,5 +1,8 @@
 use super::*;
 use crate::speakers;
+use mascot_render_client::{
+    preview_mouth_flap_timeline_request, MotionTimelineKind, PREVIEW_MOUTH_FLAP_FPS,
+};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -58,14 +61,7 @@ fn env_png_path_prefers_existing_png_file() {
 
 #[test]
 fn motion_timeline_request_serializes_mouth_flap_kind() {
-    let body = serde_json::to_value(MotionTimelineRequest {
-        steps: vec![MotionTimelineStep {
-            kind: MotionTimelineKind::MouthFlap,
-            duration_ms: 5_000,
-            fps: 20,
-        }],
-    })
-    .unwrap();
+    let body = serde_json::to_value(preview_mouth_flap_timeline_request()).unwrap();
 
     assert_eq!(body["steps"][0]["kind"], "mouth_flap");
 }
@@ -73,12 +69,14 @@ fn motion_timeline_request_serializes_mouth_flap_kind() {
 #[test]
 fn motion_timeline_request_uses_preview_mouth_flap_timing() {
     let request = motion_timeline_request(5_000);
+    let preview_request = preview_mouth_flap_timeline_request();
 
     assert_eq!(request.steps.len(), 1);
+    assert_eq!(request, preview_request);
     assert!(matches!(
         request.steps[0].kind,
         MotionTimelineKind::MouthFlap
     ));
     assert_eq!(request.steps[0].duration_ms, 5_000);
-    assert_eq!(request.steps[0].fps, 4);
+    assert_eq!(request.steps[0].fps, PREVIEW_MOUTH_FLAP_FPS);
 }

@@ -1,48 +1,22 @@
 use std::fs;
-use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
 use std::sync::OnceLock;
 use std::thread;
-use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
+use mascot_render_client::{
+    change_skin_mascot_render_server, play_timeline_mascot_render_server,
+    preview_mouth_flap_timeline_request, show_mascot_render_server, MotionTimelineRequest,
+};
+use serde::Deserialize;
 
 use crate::tag;
 
-const MASCOT_RENDER_SERVER_PORT: u16 = 62152;
-const MASCOT_RENDER_SERVER_HOST: &str = "127.0.0.1";
-const IO_TIMEOUT: Duration = Duration::from_millis(200);
-const TIMELINE_FPS: u16 = 4;
 const MIN_DURATION_MS: u64 = 100;
 const FALLBACK_DURATION_MS: u64 = 5_000;
 const ZUNDAMON_CHAR_NAME: &str = "ずんだもん";
 const ZUNDAMON_PNG_PATH_ENV: &str = "MASCOT_RENDER_SERVER_ZUNDAMON_PNG_PATH";
 const DATA_ROOT_ENV: &str = "MASCOT_RENDER_SERVER_DATA_ROOT";
-
-#[derive(Debug, Serialize)]
-struct ChangeSkinRequest<'a> {
-    png_path: &'a Path,
-}
-
-#[derive(Debug, Clone, Copy, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum MotionTimelineKind {
-    MouthFlap,
-}
-
-#[derive(Debug, Serialize)]
-struct MotionTimelineStep {
-    kind: MotionTimelineKind,
-    duration_ms: u64,
-    fps: u16,
-}
-
-#[derive(Debug, Serialize)]
-struct MotionTimelineRequest {
-    steps: Vec<MotionTimelineStep>,
-}
 
 #[derive(Debug, Deserialize)]
 struct MascotRuntimeState {
@@ -148,10 +122,6 @@ fn newest_runtime_state_path(cache_dir: &Path) -> Option<PathBuf> {
         .map(|(_, path)| path)
 }
 
-fn server_address() -> SocketAddr {
-    SocketAddr::from(([127, 0, 0, 1], MASCOT_RENDER_SERVER_PORT))
-}
-
 fn mascot_worker_tx() -> &'static Sender<MascotPlaybackSync> {
     static TX: OnceLock<Sender<MascotPlaybackSync>> = OnceLock::new();
     TX.get_or_init(|| {
@@ -166,100 +136,24 @@ fn mascot_worker_tx() -> &'static Sender<MascotPlaybackSync> {
 }
 
 fn handle_playback_sync(sync: MascotPlaybackSync) {
-    let _ = send_request(server_address(), "POST", "/show", None);
+    let _ = show_mascot_render_server();
 
     if sync.char_name.as_deref() == Some(ZUNDAMON_CHAR_NAME) {
         if let Some(png_path) = zundamon_png_path() {
-            let body = serde_json::to_vec(&ChangeSkinRequest {
-                png_path: &png_path,
-            })
-            .ok();
-            if let Some(body) = body.as_deref() {
-                let _ = send_request(server_address(), "POST", "/change-skin", Some(body));
-            }
+            let _ = change_skin_mascot_render_server(&png_path);
         }
     }
 
     let request = motion_timeline_request(sync.duration_ms);
-    if let Ok(body) = serde_json::to_vec(&request) {
-        let _ = send_request(server_address(), "POST", "/timeline", Some(&body));
-    }
+    let _ = play_timeline_mascot_render_server(&request);
 }
 
 fn motion_timeline_request(duration_ms: u64) -> MotionTimelineRequest {
-    MotionTimelineRequest {
-        steps: vec![MotionTimelineStep {
-            kind: MotionTimelineKind::MouthFlap,
-            duration_ms,
-            fps: TIMELINE_FPS,
-        }],
+    let mut request = preview_mouth_flap_timeline_request();
+    if let Some(step) = request.steps.first_mut() {
+        step.duration_ms = duration_ms;
     }
-}
-
-fn send_request(
-    address: SocketAddr,
-    method: &str,
-    path: &str,
-    body: Option<&[u8]>,
-) -> Result<(), ()> {
-    let mut stream = TcpStream::connect_timeout(&address, IO_TIMEOUT).map_err(|_| ())?;
-    let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
-    let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
-
-    let body = body.unwrap_or_default();
-    let mut request = format!(
-        "{method} {path} HTTP/1.1\r\nHost: {MASCOT_RENDER_SERVER_HOST}:{port}\r\nConnection: close\r\nContent-Length: {}\r\n",
-        body.len(),
-        port = address.port()
-    );
-    if !body.is_empty() {
-        request.push_str("Content-Type: application/json\r\n");
-    }
-    request.push_str("\r\n");
-
-    stream.write_all(request.as_bytes()).map_err(|_| ())?;
-    if !body.is_empty() {
-        stream.write_all(body).map_err(|_| ())?;
-    }
-    stream.flush().map_err(|_| ())?;
-
-    read_response(stream)
-}
-
-fn read_response(stream: TcpStream) -> Result<(), ()> {
-    let mut reader = BufReader::new(stream);
-    let mut status_line = String::new();
-    reader.read_line(&mut status_line).map_err(|_| ())?;
-    let status_code = status_line
-        .split_whitespace()
-        .nth(1)
-        .and_then(|value| value.parse::<u16>().ok())
-        .ok_or(())?;
-    if !(200..300).contains(&status_code) {
-        return Err(());
-    }
-
-    let mut content_length = 0usize;
-    let mut line = String::new();
-    loop {
-        line.clear();
-        reader.read_line(&mut line).map_err(|_| ())?;
-        if line == "\r\n" || line == "\n" || line.is_empty() {
-            break;
-        }
-        if let Some((name, value)) = line.split_once(':') {
-            if name.trim().eq_ignore_ascii_case("content-length") {
-                content_length = value.trim().parse::<usize>().map_err(|_| ())?;
-            }
-        }
-    }
-
-    if content_length > 0 {
-        let mut body = vec![0; content_length];
-        reader.read_exact(&mut body).map_err(|_| ())?;
-    }
-
-    Ok(())
+    request
 }
 
 #[cfg(test)]
