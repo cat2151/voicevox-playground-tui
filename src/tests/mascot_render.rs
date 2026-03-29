@@ -69,3 +69,8 @@ fn motion_timeline_request_serializes_mouth_flap_kind() {
 
     assert_eq!(body["steps"][0]["kind"], "mouth_flap");
 }
+
+#[test]
+fn motion_timeline_request_uses_preview_mouth_flap_fps() {
+    assert_eq!(TIMELINE_FPS, 4);
+}

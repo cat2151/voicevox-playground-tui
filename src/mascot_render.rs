@@ -14,7 +14,7 @@ use crate::tag;
 const MASCOT_RENDER_SERVER_PORT: u16 = 62152;
 const MASCOT_RENDER_SERVER_HOST: &str = "127.0.0.1";
 const IO_TIMEOUT: Duration = Duration::from_millis(200);
-const TIMELINE_FPS: u16 = 20;
+const TIMELINE_FPS: u16 = 4;
 const MIN_DURATION_MS: u64 = 100;
 const FALLBACK_DURATION_MS: u64 = 5_000;
 const ZUNDAMON_CHAR_NAME: &str = "ずんだもん";
