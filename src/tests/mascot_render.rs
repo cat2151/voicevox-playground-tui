@@ -3,13 +3,8 @@ use crate::speakers;
 use mascot_render_client::{
     preview_mouth_flap_timeline_request, MotionTimelineKind, PREVIEW_MOUTH_FLAP_FPS,
 };
-use std::sync::{Mutex, OnceLock};
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
-
-fn env_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-}
 
 #[test]
 fn mascot_char_name_for_plain_line_uses_default_character() {
@@ -40,23 +35,128 @@ fn wav_duration_ms_reads_pcm_length() {
 }
 
 #[test]
-fn env_png_path_prefers_existing_png_file() {
-    let _guard = env_lock().lock().unwrap();
+fn mascot_char_name_for_explicit_character_tag_uses_tagged_character() {
+    speakers::init_test_table();
+    assert_eq!(
+        mascot_char_name_for_line("[四国めたん]こんにちは"),
+        Some("四国めたん".to_string())
+    );
+}
+
+#[test]
+fn mascot_psd_entries_from_cache_dir_reads_rendered_pngs() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let dir = std::env::temp_dir().join(format!("vpt-mascot-render-{unique}"));
-    fs::create_dir_all(&dir).unwrap();
-    let png = dir.join("zundamon.png");
+    let cache_dir = std::env::temp_dir().join(format!("vpt-mascot-cache-{unique}"));
+    let meta_dir = cache_dir.join("demo");
+    let png = cache_dir.join("zundamon-front.png");
+    fs::create_dir_all(&meta_dir).unwrap();
     fs::write(&png, []).unwrap();
+    fs::write(
+        meta_dir.join("psd-meta.json"),
+        format!(
+            r#"{{
+  "psds": [
+    {{
+      "file_name": "ずんだもん-front.psd",
+      "path": "characters/ずんだもん-front.psd",
+      "rendered_png_path": "{}"
+    }},
+    {{
+      "file_name": "四国めたん.psd",
+      "path": "characters/四国めたん.psd",
+      "rendered_png_path": null
+    }}
+  ]
+}}"#,
+            png.display()
+        ),
+    )
+    .unwrap();
 
-    std::env::set_var(ZUNDAMON_PNG_PATH_ENV, &png);
-    assert_eq!(env_png_path(ZUNDAMON_PNG_PATH_ENV), Some(png.clone()));
-    std::env::remove_var(ZUNDAMON_PNG_PATH_ENV);
+    let entries = mascot_psd_list_from_cache_dir(&cache_dir).entries;
+
+    assert_eq!(entries.len(), 2);
+    let zundamon = entries
+        .iter()
+        .find(|entry| entry.psd_label == "characters/ずんだもん-front.psd")
+        .unwrap();
+    let metan = entries
+        .iter()
+        .find(|entry| entry.psd_label == "characters/四国めたん.psd")
+        .unwrap();
+    assert_eq!(zundamon.png_path, Some(png.clone()));
+    assert_eq!(metan.png_path, None);
 
     let _ = fs::remove_file(png);
-    let _ = fs::remove_dir(dir);
+    let _ = fs::remove_dir_all(cache_dir);
+}
+
+#[test]
+fn matching_skin_path_selects_a_matching_png() {
+    let entries = vec![
+        MascotPsdEntry {
+            psd_label: "characters/ずんだもん-front.psd".to_string(),
+            png_path: Some(PathBuf::from("/tmp/first.png")),
+        },
+        MascotPsdEntry {
+            psd_label: "characters/ずんだもん-back.psd".to_string(),
+            png_path: Some(PathBuf::from("/tmp/second.png")),
+        },
+        MascotPsdEntry {
+            psd_label: "characters/四国めたん.psd".to_string(),
+            png_path: Some(PathBuf::from("/tmp/metan.png")),
+        },
+    ];
+
+    let selected = matching_skin_path("ずんだもん", &entries);
+
+    assert!(matches!(
+        selected.as_deref(),
+        Some(path) if path == Path::new("/tmp/first.png") || path == Path::new("/tmp/second.png")
+    ));
+}
+
+#[test]
+fn no_matching_skin_message_includes_speaker_and_psd_list() {
+    let message = no_matching_skin_message(
+        "春日部つむぎ",
+        &[
+            MascotPsdEntry {
+                psd_label: "characters/ずんだもん.psd".to_string(),
+                png_path: Some(PathBuf::from("/tmp/zundamon.png")),
+            },
+            MascotPsdEntry {
+                psd_label: "characters/四国めたん.psd".to_string(),
+                png_path: Some(PathBuf::from("/tmp/metan.png")),
+            },
+        ],
+    );
+
+    assert!(message.contains("speaker:春日部つむぎ"));
+    assert!(message.contains("characters/ずんだもん.psd"));
+    assert!(message.contains("characters/四国めたん.psd"));
+}
+
+#[test]
+fn mascot_psd_list_from_missing_cache_dir_reports_reason() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let missing = std::env::temp_dir().join(format!("vpt-missing-cache-{unique}"));
+
+    let list = mascot_psd_list_from_cache_dir(&missing);
+
+    assert!(list.entries.is_empty());
+    assert!(list
+        .load_reason
+        .as_deref()
+        .is_some_and(|reason| reason.contains("cache path could not be read")));
+    assert!(no_matching_skin_message_for_list("春日部つむぎ", &list)
+        .contains(&missing.display().to_string()));
 }
 
 #[test]
