@@ -6,23 +6,7 @@ use ratatui::{
 
 use crate::mascot_render;
 
-use super::{BG, FG, ORANGE};
-
-fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    let popup_layout = Layout::vertical([
-        Constraint::Percentage((100 - percent_y) / 2),
-        Constraint::Percentage(percent_y),
-        Constraint::Percentage((100 - percent_y) / 2),
-    ])
-    .split(r);
-
-    Layout::horizontal([
-        Constraint::Percentage((100 - percent_x) / 2),
-        Constraint::Percentage(percent_x),
-        Constraint::Percentage((100 - percent_x) / 2),
-    ])
-    .split(popup_layout[1])[1]
-}
+use super::{centered_rect, BG, FG, ORANGE};
 
 pub(super) fn render_mascot_overlay(f: &mut Frame) {
     let Some(message) = mascot_render::current_overlay_message() else {

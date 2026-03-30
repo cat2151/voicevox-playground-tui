@@ -9,26 +9,9 @@ use std::collections::HashSet;
 
 use crate::app::{App, HELP_ENTRIES};
 
-use super::{BG, DIM, FG, YELLOW};
+use super::{centered_rect, BG, DIM, FG, YELLOW};
 
 // ── ヘルプメニューオーバーレイ ──────────────────────────────────────────────────
-
-/// ヘルプオーバーレイ用の中央配置Rectを計算するヘルパー。
-fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    let popup_layout = Layout::vertical([
-        Constraint::Percentage((100 - percent_y) / 2),
-        Constraint::Percentage(percent_y),
-        Constraint::Percentage((100 - percent_y) / 2),
-    ])
-    .split(r);
-
-    Layout::horizontal([
-        Constraint::Percentage((100 - percent_x) / 2),
-        Constraint::Percentage(percent_x),
-        Constraint::Percentage((100 - percent_x) / 2),
-    ])
-    .split(popup_layout[1])[1]
-}
 
 /// ヘルプメニューを画面中央にオーバーレイ表示する。
 /// 2列でNORMALモードのkeybindを一覧表示し、キー入力で前方一致ハイライト/完全一致で実行、ESCで閉じる。

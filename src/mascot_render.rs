@@ -18,11 +18,25 @@ const MIN_DURATION_MS: u64 = 100;
 const FALLBACK_DURATION_MS: u64 = 5_000;
 const DATA_ROOT_ENV: &str = "MASCOT_RENDER_SERVER_DATA_ROOT";
 const OVERLAY_DURATION: Duration = Duration::from_secs(5);
+const PSD_CACHE_TTL: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct MascotPsdEntry {
     psd_label: String,
     png_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MascotPsdList {
+    entries: Vec<MascotPsdEntry>,
+    load_reason: Option<String>,
+}
+
+#[derive(Debug)]
+struct MascotPsdCache {
+    cache_dir: Option<PathBuf>,
+    loaded_at: Option<Instant>,
+    list: MascotPsdList,
 }
 
 #[derive(Debug, Deserialize)]
@@ -106,16 +120,62 @@ fn mascot_data_root() -> Option<PathBuf> {
     dirs::data_local_dir().map(|base| base.join("mascot-render-server"))
 }
 
-fn mascot_psd_entries() -> Vec<MascotPsdEntry> {
-    let Some(data_root) = mascot_data_root() else {
-        return Vec::new();
-    };
-    mascot_psd_entries_from_cache_dir(&data_root.join("cache"))
+fn mascot_psd_cache_slot() -> &'static Mutex<MascotPsdCache> {
+    static SLOT: OnceLock<Mutex<MascotPsdCache>> = OnceLock::new();
+    SLOT.get_or_init(|| {
+        Mutex::new(MascotPsdCache {
+            cache_dir: None,
+            loaded_at: None,
+            list: MascotPsdList {
+                entries: Vec::new(),
+                load_reason: None,
+            },
+        })
+    })
 }
 
-fn mascot_psd_entries_from_cache_dir(cache_dir: &Path) -> Vec<MascotPsdEntry> {
-    let Ok(entries) = fs::read_dir(cache_dir) else {
-        return Vec::new();
+fn mascot_psd_list() -> MascotPsdList {
+    let cache_dir = mascot_data_root().map(|path| path.join("cache"));
+    let mut cache = mascot_psd_cache_slot().lock().unwrap();
+    let now = Instant::now();
+    let cache_is_fresh = cache.cache_dir == cache_dir
+        && cache
+            .loaded_at
+            .is_some_and(|loaded_at| now.duration_since(loaded_at) < PSD_CACHE_TTL);
+
+    if cache_is_fresh {
+        return cache.list.clone();
+    }
+
+    let list = load_mascot_psd_list(cache_dir.as_deref());
+    cache.cache_dir = cache_dir;
+    cache.loaded_at = Some(now);
+    cache.list = list.clone();
+    list
+}
+
+fn load_mascot_psd_list(cache_dir: Option<&Path>) -> MascotPsdList {
+    let Some(cache_dir) = cache_dir else {
+        return MascotPsdList {
+            entries: Vec::new(),
+            load_reason: Some("cache path could not be resolved".to_string()),
+        };
+    };
+    mascot_psd_list_from_cache_dir(cache_dir)
+}
+
+fn mascot_psd_list_from_cache_dir(cache_dir: &Path) -> MascotPsdList {
+    let entries = match fs::read_dir(cache_dir) {
+        Ok(entries) => entries,
+        Err(error) => {
+            return MascotPsdList {
+                entries: Vec::new(),
+                load_reason: Some(format!(
+                    "cache path could not be read: {} ({error})",
+                    cache_dir.display()
+                )),
+            };
+        }
     };
 
     let mut entries = entries
@@ -148,7 +208,18 @@ fn mascot_psd_entries_from_cache_dir(cache_dir: &Path) -> Vec<MascotPsdEntry> {
         })
         .collect::<Vec<_>>();
     entries.sort_by(|left, right| left.psd_label.cmp(&right.psd_label));
-    entries
+    let load_reason = if entries.is_empty() {
+        Some(format!(
+            "no valid psd-meta.json entries were found under {}",
+            cache_dir.display()
+        ))
+    } else {
+        None
+    };
+    MascotPsdList {
+        entries,
+        load_reason,
+    }
 }
 
 fn matching_skin_path(speaker: &str, psd_entries: &[MascotPsdEntry]) -> Option<PathBuf> {
@@ -187,6 +258,17 @@ fn no_matching_skin_message(speaker: &str, psd_entries: &[MascotPsdEntry]) -> St
         .collect::<Vec<_>>()
         .join(", ");
     format!("hitしませんでした。speaker:{speaker} psdのlist:{psd_list}")
+}
+
+fn no_matching_skin_message_for_list(speaker: &str, psd_list: &MascotPsdList) -> String {
+    if psd_list.entries.is_empty() {
+        let reason = psd_list
+            .load_reason
+            .as_deref()
+            .unwrap_or("psd list is empty");
+        return format!("hitしませんでした。speaker:{speaker} psdのlist:({reason})");
+    }
+    no_matching_skin_message(speaker, &psd_list.entries)
 }
 
 fn overlay_message_slot() -> &'static Mutex<Option<OverlayMessage>> {
@@ -234,12 +316,12 @@ fn handle_playback_sync(sync: MascotPlaybackSync) {
     let _ = show_mascot_render_server();
 
     if let Some(speaker) = sync.char_name.as_deref() {
-        let psd_entries = mascot_psd_entries();
-        if let Some(png_path) = matching_skin_path(speaker, &psd_entries) {
+        let psd_list = mascot_psd_list();
+        if let Some(png_path) = matching_skin_path(speaker, &psd_list.entries) {
             clear_overlay_message();
             let _ = change_skin_mascot_render_server(&png_path);
         } else {
-            set_overlay_message(no_matching_skin_message(speaker, &psd_entries));
+            set_overlay_message(no_matching_skin_message_for_list(speaker, &psd_list));
         }
     } else {
         clear_overlay_message();

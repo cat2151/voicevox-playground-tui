@@ -22,6 +22,22 @@ pub(super) const ORANGE: Color = Color::Rgb(253, 151, 31);
 pub(super) const CURSOR_NORMAL: Color = Color::Rgb(73, 72, 62);
 pub(super) const CURSOR_INSERT: Color = Color::Rgb(102, 217, 232);
 
+pub(super) fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::vertical([
+        Constraint::Percentage((100 - percent_y) / 2),
+        Constraint::Percentage(percent_y),
+        Constraint::Percentage((100 - percent_y) / 2),
+    ])
+    .split(r);
+
+    Layout::horizontal([
+        Constraint::Percentage((100 - percent_x) / 2),
+        Constraint::Percentage(percent_x),
+        Constraint::Percentage((100 - percent_x) / 2),
+    ])
+    .split(popup_layout[1])[1]
+}
+
 /// イントネーション編集の列カラー（隣接列を異なる色にする）
 pub(super) fn column_color(i: usize) -> Color {
     if i.is_multiple_of(2) {
@@ -65,10 +81,10 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     lines::render_lines(f, app, chunks[0]);
     lines::render_status(f, app, chunks[1]);
 
+    overlay::render_mascot_overlay(f);
+
     // ヘルプモードはノーマルレイアウトの上にオーバーレイ表示する
     if app.mode == Mode::Help {
         help::render_help_overlay(f, app);
     }
-
-    overlay::render_mascot_overlay(f);
 }

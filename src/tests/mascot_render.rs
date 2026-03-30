@@ -76,7 +76,7 @@ fn mascot_psd_entries_from_cache_dir_reads_rendered_pngs() {
     )
     .unwrap();
 
-    let entries = mascot_psd_entries_from_cache_dir(&cache_dir);
+    let entries = mascot_psd_list_from_cache_dir(&cache_dir).entries;
 
     assert_eq!(entries.len(), 2);
     let zundamon = entries
@@ -138,6 +138,25 @@ fn no_matching_skin_message_includes_speaker_and_psd_list() {
     assert!(message.contains("speaker:春日部つむぎ"));
     assert!(message.contains("characters/ずんだもん.psd"));
     assert!(message.contains("characters/四国めたん.psd"));
+}
+
+#[test]
+fn mascot_psd_list_from_missing_cache_dir_reports_reason() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let missing = std::env::temp_dir().join(format!("vpt-missing-cache-{unique}"));
+
+    let list = mascot_psd_list_from_cache_dir(&missing);
+
+    assert!(list.entries.is_empty());
+    assert!(list
+        .load_reason
+        .as_deref()
+        .is_some_and(|reason| reason.contains("cache path could not be read")));
+    assert!(no_matching_skin_message_for_list("春日部つむぎ", &list)
+        .contains(&missing.display().to_string()));
 }
 
 #[test]
