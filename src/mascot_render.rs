@@ -1,8 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use mascot_render_client::{
     change_skin_mascot_render_server, play_timeline_mascot_render_server,
@@ -15,13 +16,33 @@ use crate::tag;
 
 const MIN_DURATION_MS: u64 = 100;
 const FALLBACK_DURATION_MS: u64 = 5_000;
-const ZUNDAMON_CHAR_NAME: &str = "ずんだもん";
-const ZUNDAMON_PNG_PATH_ENV: &str = "MASCOT_RENDER_SERVER_ZUNDAMON_PNG_PATH";
 const DATA_ROOT_ENV: &str = "MASCOT_RENDER_SERVER_DATA_ROOT";
+const OVERLAY_DURATION: Duration = Duration::from_secs(5);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MascotPsdEntry {
+    psd_label: String,
+    png_path: Option<PathBuf>,
+}
 
 #[derive(Debug, Deserialize)]
-struct MascotRuntimeState {
-    png_path: PathBuf,
+struct MascotPsdMetaFile {
+    psds: Vec<MascotPsdMetaEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MascotPsdMetaEntry {
+    file_name: String,
+    #[serde(default)]
+    path: Option<PathBuf>,
+    #[serde(default)]
+    rendered_png_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+struct OverlayMessage {
+    text: String,
+    expires_at: Instant,
 }
 
 pub fn sync_playback(line: &str, wav: &[u8]) {
@@ -72,25 +93,6 @@ fn wav_duration_ms(wav: &[u8]) -> Option<u64> {
     Some(duration_ms.max(MIN_DURATION_MS))
 }
 
-fn zundamon_png_path() -> Option<PathBuf> {
-    env_png_path(ZUNDAMON_PNG_PATH_ENV).or_else(runtime_state_png_path)
-}
-
-fn env_png_path(name: &str) -> Option<PathBuf> {
-    let path = PathBuf::from(std::env::var_os(name)?);
-    (path.extension().and_then(|ext| ext.to_str()) == Some("png") && path.exists()).then_some(path)
-}
-
-fn runtime_state_png_path() -> Option<PathBuf> {
-    let cache_dir = mascot_data_root()?.join("cache");
-    let state_path = newest_runtime_state_path(&cache_dir)?;
-    let bytes = fs::read(&state_path).ok()?;
-    let state: MascotRuntimeState = serde_json::from_slice(&bytes).ok()?;
-    (state.png_path.extension().and_then(|ext| ext.to_str()) == Some("png")
-        && state.png_path.exists())
-    .then_some(state.png_path)
-}
-
 fn mascot_data_root() -> Option<PathBuf> {
     if let Some(root) = std::env::var_os(DATA_ROOT_ENV) {
         let path = PathBuf::from(root);
@@ -104,23 +106,115 @@ fn mascot_data_root() -> Option<PathBuf> {
     dirs::data_local_dir().map(|base| base.join("mascot-render-server"))
 }
 
-fn newest_runtime_state_path(cache_dir: &Path) -> Option<PathBuf> {
-    let entries = fs::read_dir(cache_dir).ok()?;
-    entries
+fn mascot_psd_entries() -> Vec<MascotPsdEntry> {
+    let Some(data_root) = mascot_data_root() else {
+        return Vec::new();
+    };
+    mascot_psd_entries_from_cache_dir(&data_root.join("cache"))
+}
+
+fn mascot_psd_entries_from_cache_dir(cache_dir: &Path) -> Vec<MascotPsdEntry> {
+    let Ok(entries) = fs::read_dir(cache_dir) else {
+        return Vec::new();
+    };
+
+    let mut entries = entries
         .filter_map(Result::ok)
-        .filter_map(|entry| {
-            let path = entry.path();
-            let file_name = path.file_name()?.to_str()?;
-            if !file_name.starts_with("mascot-render-server-")
-                || !file_name.ends_with(".state.json")
-            {
-                return None;
-            }
-            let modified = entry.metadata().ok()?.modified().ok()?;
-            Some((modified, path))
+        .filter(|entry| entry.file_type().ok().is_some_and(|kind| kind.is_dir()))
+        .flat_map(|entry| {
+            let meta_path = entry.path().join("psd-meta.json");
+            let bytes = match fs::read(&meta_path) {
+                Ok(bytes) => bytes,
+                Err(_) => return Vec::new(),
+            };
+            let meta = match serde_json::from_slice::<MascotPsdMetaFile>(&bytes) {
+                Ok(meta) => meta,
+                Err(_) => return Vec::new(),
+            };
+            meta.psds
+                .into_iter()
+                .map(|psd| MascotPsdEntry {
+                    psd_label: psd
+                        .path
+                        .as_ref()
+                        .map(|path| path.to_string_lossy().into_owned())
+                        .unwrap_or(psd.file_name),
+                    png_path: psd.rendered_png_path.filter(|path| {
+                        path.extension().and_then(|ext| ext.to_str()) == Some("png")
+                            && path.exists()
+                    }),
+                })
+                .collect::<Vec<_>>()
         })
-        .max_by_key(|(modified, _)| *modified)
-        .map(|(_, path)| path)
+        .collect::<Vec<_>>();
+    entries.sort_by(|left, right| left.psd_label.cmp(&right.psd_label));
+    entries
+}
+
+fn matching_skin_path(speaker: &str, psd_entries: &[MascotPsdEntry]) -> Option<PathBuf> {
+    let speaker = speaker.trim();
+    if speaker.is_empty() {
+        return None;
+    }
+    let speaker = speaker.to_lowercase();
+    let matches = psd_entries
+        .iter()
+        .filter(|entry| entry.psd_label.to_lowercase().contains(&speaker))
+        .filter_map(|entry| entry.png_path.as_ref())
+        .collect::<Vec<_>>();
+
+    matches
+        .get(random_index(matches.len())?)
+        .map(|path| (*path).clone())
+}
+
+fn random_index(len: usize) -> Option<usize> {
+    if len == 0 {
+        return None;
+    }
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.subsec_nanos() as usize)
+        .unwrap_or_default();
+    Some(nanos % len)
+}
+
+fn no_matching_skin_message(speaker: &str, psd_entries: &[MascotPsdEntry]) -> String {
+    let psd_list = psd_entries
+        .iter()
+        .map(|entry| entry.psd_label.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("hitしませんでした。speaker:{speaker} psdのlist:{psd_list}")
+}
+
+fn overlay_message_slot() -> &'static Mutex<Option<OverlayMessage>> {
+    static SLOT: OnceLock<Mutex<Option<OverlayMessage>>> = OnceLock::new();
+    SLOT.get_or_init(|| Mutex::new(None))
+}
+
+fn set_overlay_message(text: String) {
+    *overlay_message_slot().lock().unwrap() = Some(OverlayMessage {
+        text,
+        expires_at: Instant::now() + OVERLAY_DURATION,
+    });
+}
+
+fn clear_overlay_message() {
+    *overlay_message_slot().lock().unwrap() = None;
+}
+
+pub(crate) fn current_overlay_message() -> Option<String> {
+    let mut slot = overlay_message_slot().lock().unwrap();
+    match slot.as_ref() {
+        Some(message) if message.expires_at > Instant::now() => Some(message.text.clone()),
+        Some(_) => {
+            *slot = None;
+            None
+        }
+        None => None,
+    }
 }
 
 fn mascot_worker_tx() -> &'static Sender<MascotPlaybackSync> {
@@ -139,10 +233,16 @@ fn mascot_worker_tx() -> &'static Sender<MascotPlaybackSync> {
 fn handle_playback_sync(sync: MascotPlaybackSync) {
     let _ = show_mascot_render_server();
 
-    if sync.char_name.as_deref() == Some(ZUNDAMON_CHAR_NAME) {
-        if let Some(png_path) = zundamon_png_path() {
+    if let Some(speaker) = sync.char_name.as_deref() {
+        let psd_entries = mascot_psd_entries();
+        if let Some(png_path) = matching_skin_path(speaker, &psd_entries) {
+            clear_overlay_message();
             let _ = change_skin_mascot_render_server(&png_path);
+        } else {
+            set_overlay_message(no_matching_skin_message(speaker, &psd_entries));
         }
+    } else {
+        clear_overlay_message();
     }
 
     let request = motion_timeline_request(sync.duration_ms);

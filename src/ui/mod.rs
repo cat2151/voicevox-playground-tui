@@ -7,6 +7,7 @@ use crate::app::{App, Mode};
 mod help;
 mod intonation;
 mod lines;
+mod overlay;
 
 pub(crate) use intonation::PITCH_PER_ROW;
 
@@ -54,6 +55,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             intonation::render_intonation_editor(f, app, chunks[0]);
             intonation::render_intonation_status(f, app, chunks[1]);
         }
+        overlay::render_mascot_overlay(f);
         return;
     }
 
@@ -67,4 +69,6 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     if app.mode == Mode::Help {
         help::render_help_overlay(f, app);
     }
+
+    overlay::render_mascot_overlay(f);
 }
