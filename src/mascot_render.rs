@@ -1,4 +1,5 @@
 use std::fs;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, OnceLock};
@@ -6,11 +7,12 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use mascot_render_client::{
-    change_skin_mascot_render_server, play_timeline_mascot_render_server,
-    preview_mouth_flap_timeline_request, show_mascot_render_server, MotionTimelineKind,
-    MotionTimelineRequest, MotionTimelineStep, PREVIEW_MOUTH_FLAP_FPS,
+    change_skin_mascot_render_server, mascot_render_server_address,
+    play_timeline_mascot_render_server, preview_mouth_flap_timeline_request,
+    show_mascot_render_server, ChangeSkinRequest, MotionTimelineKind, MotionTimelineRequest,
+    MotionTimelineStep, PREVIEW_MOUTH_FLAP_FPS,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::tag;
 
@@ -312,14 +314,118 @@ fn mascot_worker_tx() -> &'static Sender<MascotPlaybackSync> {
     })
 }
 
+fn indented_lines(text: &str) -> String {
+    text.lines()
+        .map(|line| format!("  {line}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn format_mascot_request(
+    method: &str,
+    path: &str,
+    address: SocketAddr,
+    body: Option<(&str, usize)>,
+) -> String {
+    let content_length = body.map(|(_, len)| len).unwrap_or_default();
+    let mut headers = vec![
+        format!("{method} {path} HTTP/1.1"),
+        format!("Host: {address}"),
+        "Connection: close".to_string(),
+        format!("Content-Length: {content_length}"),
+    ];
+    if body.is_some() {
+        headers.push("Content-Type: application/json".to_string());
+    }
+
+    let mut sections = vec!["header:".to_string(), indented_lines(&headers.join("\n"))];
+    if let Some((body, _)) = body {
+        sections.push("body:".to_string());
+        sections.push(indented_lines(body));
+    }
+    sections.join("\n")
+}
+
+fn format_mascot_json_request<T: Serialize>(
+    method: &str,
+    path: &str,
+    address: SocketAddr,
+    body: &T,
+) -> String {
+    let (compact_body, pretty_body) = match serde_json::to_vec(body) {
+        Ok(compact_body) => {
+            let pretty_body = serde_json::to_string_pretty(body)
+                .unwrap_or_else(|_| String::from_utf8_lossy(&compact_body).into_owned());
+            (compact_body, pretty_body)
+        }
+        Err(error) => {
+            let fallback_value = serde_json::json!({
+                "serialization_error": error.to_string(),
+            });
+            let compact_body = serde_json::to_vec(&fallback_value).unwrap_or_else(|_| {
+                b"{\"serialization_error\":\"failed to encode logging fallback\"}".to_vec()
+            });
+            let pretty_body = serde_json::to_string_pretty(&fallback_value)
+                .unwrap_or_else(|_| String::from_utf8_lossy(&compact_body).into_owned());
+            (compact_body, pretty_body)
+        }
+    };
+    format_mascot_request(
+        method,
+        path,
+        address,
+        Some((&pretty_body, compact_body.len())),
+    )
+}
+
+fn log_mascot_request(action: &str, request: &str, address: SocketAddr) {
+    eprintln!(
+        "[mascot-render] port {} に {action}request を送信します。\nrequest:\n{request}",
+        address.port()
+    );
+}
+
+fn log_mascot_request_result(
+    action: &str,
+    address: SocketAddr,
+    result: &Result<(), anyhow::Error>,
+) {
+    match result {
+        Ok(()) => eprintln!(
+            "[mascot-render] port {} に {action}request を送信しました。",
+            address.port()
+        ),
+        Err(error) => eprintln!(
+            "[mascot-render] port {} への {action}request 送信に失敗しました: {error}",
+            address.port()
+        ),
+    }
+}
+
 fn handle_playback_sync(sync: MascotPlaybackSync) {
-    let _ = show_mascot_render_server();
+    let address = mascot_render_server_address();
+
+    let show_request = format_mascot_request("POST", "/show", address, None);
+    log_mascot_request("表示", &show_request, address);
+    let show_result = show_mascot_render_server();
+    log_mascot_request_result("表示", address, &show_result);
 
     if let Some(speaker) = sync.char_name.as_deref() {
         let psd_list = mascot_psd_list();
         if let Some(png_path) = matching_skin_path(speaker, &psd_list.entries) {
             clear_overlay_message();
-            let _ = change_skin_mascot_render_server(&png_path);
+            let change_skin_request = ChangeSkinRequest {
+                png_path: png_path.clone(),
+            };
+            let request =
+                format_mascot_json_request("POST", "/change-skin", address, &change_skin_request);
+            log_mascot_request(&format!("{speaker} へのskin変更"), &request, address);
+            let change_skin_result = change_skin_mascot_render_server(&png_path);
+            log_mascot_request_result(
+                &format!("{speaker} へのskin変更"),
+                address,
+                &change_skin_result,
+            );
         } else {
             set_overlay_message(no_matching_skin_message_for_list(speaker, &psd_list));
         }
@@ -328,7 +434,15 @@ fn handle_playback_sync(sync: MascotPlaybackSync) {
     }
 
     let request = motion_timeline_request(sync.duration_ms);
-    let _ = play_timeline_mascot_render_server(&request);
+    let request_log = format_mascot_json_request("POST", "/timeline", address, &request);
+    let action = sync
+        .char_name
+        .as_deref()
+        .map(|speaker| format!("{speaker} の口パク"))
+        .unwrap_or_else(|| "口パク".to_string());
+    log_mascot_request(&action, &request_log, address);
+    let timeline_result = play_timeline_mascot_render_server(&request);
+    log_mascot_request_result(&action, address, &timeline_result);
 }
 
 fn motion_timeline_request(duration_ms: u64) -> MotionTimelineRequest {
