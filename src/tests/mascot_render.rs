@@ -1,8 +1,10 @@
 use super::*;
 use crate::speakers;
 use mascot_render_client::{
-    preview_mouth_flap_timeline_request, MotionTimelineKind, PREVIEW_MOUTH_FLAP_FPS,
+    preview_mouth_flap_timeline_request, ChangeSkinRequest, MotionTimelineKind,
+    PREVIEW_MOUTH_FLAP_FPS,
 };
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -188,4 +190,40 @@ fn motion_timeline_request_uses_preview_mouth_flap_timing() {
     if request.steps.len() > 1 {
         assert_eq!(&request.steps[1..], &preview_request.steps[1..]);
     }
+}
+
+#[test]
+fn format_mascot_request_without_body_omits_json_sections() {
+    let address = SocketAddr::from(([127, 0, 0, 1], 62152));
+
+    let request = format_mascot_request("POST", "/show", address, None);
+
+    assert!(request.contains("header:"));
+    assert!(request.contains("  POST /show HTTP/1.1"));
+    assert!(request.contains("  Host: 127.0.0.1:62152"));
+    assert!(request.contains("  Connection: close"));
+    assert!(request.contains("  Content-Length: 0"));
+    assert!(!request.contains("Content-Type: application/json"));
+    assert!(!request.contains("body:"));
+}
+
+#[test]
+fn format_mascot_json_request_pretty_prints_headers_and_body() {
+    let address = SocketAddr::from(([127, 0, 0, 1], 62152));
+    let body = ChangeSkinRequest {
+        png_path: PathBuf::from("/tmp/metan.png"),
+    };
+
+    let request = format_mascot_json_request("POST", "/change-skin", address, &body);
+
+    let compact_body = serde_json::to_vec(&body).unwrap();
+    assert!(request.contains("header:"));
+    assert!(request.contains("  POST /change-skin HTTP/1.1"));
+    assert!(request.contains("  Host: 127.0.0.1:62152"));
+    assert!(request.contains(&format!("  Content-Length: {}", compact_body.len())));
+    assert!(request.contains("  Content-Type: application/json"));
+    assert!(request.contains("body:"));
+    assert!(request.contains("  {"));
+    assert!(request.contains(r#"    "png_path": "/tmp/metan.png""#));
+    assert!(request.contains("  }"));
 }
