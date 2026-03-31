@@ -352,8 +352,14 @@ fn format_mascot_json_request<T: Serialize>(
     address: SocketAddr,
     body: &T,
 ) -> String {
-    let compact_body = serde_json::to_vec(body)
-        .unwrap_or_else(|error| format!(r#"{{"serialization_error":"{error}"}}"#).into_bytes());
+    let compact_body = serde_json::to_vec(body).unwrap_or_else(|error| {
+        serde_json::to_vec(&serde_json::json!({
+            "serialization_error": error.to_string(),
+        }))
+        .unwrap_or_else(|_| {
+            b"{\"serialization_error\":\"failed to encode logging fallback\"}".to_vec()
+        })
+    });
     let pretty_body = serde_json::from_slice::<serde_json::Value>(&compact_body)
         .ok()
         .and_then(|value| serde_json::to_string_pretty(&value).ok())
@@ -368,7 +374,7 @@ fn format_mascot_json_request<T: Serialize>(
 
 fn log_mascot_request(action: &str, request: &str, address: SocketAddr) {
     eprintln!(
-        "[mascot-render] port {} に {action}requestを送信します。\nrequest:\n{request}",
+        "[mascot-render] port {} に {action}request を送信します。\nrequest:\n{request}",
         address.port()
     );
 }
@@ -380,11 +386,11 @@ fn log_mascot_request_result(
 ) {
     match result {
         Ok(()) => eprintln!(
-            "[mascot-render] port {} に {action}requestを送信しました。",
+            "[mascot-render] port {} に {action}request を送信しました。",
             address.port()
         ),
         Err(error) => eprintln!(
-            "[mascot-render] port {} への{action}request送信に失敗しました: {error}",
+            "[mascot-render] port {} への {action}request 送信に失敗しました: {error}",
             address.port()
         ),
     }
