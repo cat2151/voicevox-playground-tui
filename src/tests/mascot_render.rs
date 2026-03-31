@@ -227,3 +227,12 @@ fn format_mascot_json_request_pretty_prints_headers_and_body() {
     assert!(request.contains(r#"    "png_path": "/tmp/metan.png""#));
     assert!(request.contains("  }"));
 }
+
+#[test]
+fn format_mascot_request_uses_brackets_for_ipv6_host_header() {
+    let address = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], 62152));
+
+    let request = format_mascot_request("POST", "/show", address, None);
+
+    assert!(request.contains("  Host: [::1]:62152"));
+}

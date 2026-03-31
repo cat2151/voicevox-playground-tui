@@ -330,7 +330,7 @@ fn format_mascot_request(
     let content_length = body.map(|(_, len)| len).unwrap_or_default();
     let mut headers = vec![
         format!("{method} {path} HTTP/1.1"),
-        format!("Host: {}:{}", address.ip(), address.port()),
+        format!("Host: {address}"),
         "Connection: close".to_string(),
         format!("Content-Length: {content_length}"),
     ];
@@ -352,18 +352,24 @@ fn format_mascot_json_request<T: Serialize>(
     address: SocketAddr,
     body: &T,
 ) -> String {
-    let compact_body = serde_json::to_vec(body).unwrap_or_else(|error| {
-        serde_json::to_vec(&serde_json::json!({
-            "serialization_error": error.to_string(),
-        }))
-        .unwrap_or_else(|_| {
-            b"{\"serialization_error\":\"failed to encode logging fallback\"}".to_vec()
-        })
-    });
-    let pretty_body = serde_json::from_slice::<serde_json::Value>(&compact_body)
-        .ok()
-        .and_then(|value| serde_json::to_string_pretty(&value).ok())
-        .unwrap_or_else(|| String::from_utf8_lossy(&compact_body).into_owned());
+    let (compact_body, pretty_body) = match serde_json::to_vec(body) {
+        Ok(compact_body) => {
+            let pretty_body = serde_json::to_string_pretty(body)
+                .unwrap_or_else(|_| String::from_utf8_lossy(&compact_body).into_owned());
+            (compact_body, pretty_body)
+        }
+        Err(error) => {
+            let fallback_value = serde_json::json!({
+                "serialization_error": error.to_string(),
+            });
+            let compact_body = serde_json::to_vec(&fallback_value).unwrap_or_else(|_| {
+                b"{\"serialization_error\":\"failed to encode logging fallback\"}".to_vec()
+            });
+            let pretty_body = serde_json::to_string_pretty(&fallback_value)
+                .unwrap_or_else(|_| String::from_utf8_lossy(&compact_body).into_owned());
+            (compact_body, pretty_body)
+        }
+    };
     format_mascot_request(
         method,
         path,
