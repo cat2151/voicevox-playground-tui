@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::Write;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
@@ -20,6 +21,7 @@ use crate::tag;
 const MIN_DURATION_MS: u64 = 100;
 const FALLBACK_DURATION_MS: u64 = 5_000;
 const DATA_ROOT_ENV: &str = "MASCOT_RENDER_SERVER_DATA_ROOT";
+const LOG_FILE_NAME: &str = "voicevox-playground-tui.log";
 const OVERLAY_DURATION: Duration = Duration::from_secs(5);
 const PSD_CACHE_TTL: Duration = Duration::from_secs(3);
 
@@ -450,20 +452,52 @@ fn format_mascot_log_message(message: &str) -> String {
     format!("[{}] [mascot-render] {message}", current_log_timestamp())
 }
 
+fn mascot_log_path() -> Option<PathBuf> {
+    mascot_data_root().map(|root| root.join(LOG_FILE_NAME))
+}
+
+fn append_mascot_log(message: &str) -> anyhow::Result<()> {
+    let Some(path) = mascot_log_path() else {
+        return Ok(());
+    };
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    writeln!(file, "{message}")?;
+    Ok(())
+}
+
 fn log_mascot_request_result(
     action: &str,
     address: SocketAddr,
     request: &str,
     result: &Result<(), anyhow::Error>,
 ) {
-    if let Err(error) = result {
-        set_blocking_overlay_message(format!(
-            "{}\nrequest:\n{request}",
-            format_mascot_log_message(&format!(
-                "port {} への {action}request 送信に失敗しました: {error}",
-                address.port()
-            ))
-        ));
+    match result {
+        Ok(()) => {
+            let _ = append_mascot_log(&format!(
+                "{}\nrequest:\n{request}",
+                format_mascot_log_message(&format!(
+                    "port {} に {action}request を送信しました。",
+                    address.port()
+                ))
+            ));
+        }
+        Err(error) => {
+            let message = format!(
+                "{}\nrequest:\n{request}",
+                format_mascot_log_message(&format!(
+                    "port {} への {action}request 送信に失敗しました: {error}",
+                    address.port()
+                ))
+            );
+            let _ = append_mascot_log(&message);
+            set_blocking_overlay_message(message);
+        }
     }
 }
 
