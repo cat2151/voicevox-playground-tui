@@ -75,10 +75,11 @@ fn default_mascot_data_root_uses_local_data_dir() {
 
 #[test]
 fn mascot_data_root_resolves_relative_env_under_local_data_dir() {
-    with_data_root_env(Some(OsString::from("voicevox-playground-tui/logs")), || {
+    let relative_path = PathBuf::from("voicevox-playground-tui").join("logs");
+    with_data_root_env(Some(OsString::from(&relative_path)), || {
         assert_eq!(
             mascot_data_root(),
-            dirs::data_local_dir().map(|base| base.join("voicevox-playground-tui/logs"))
+            dirs::data_local_dir().map(|base| base.join(&relative_path))
         );
     });
 }
