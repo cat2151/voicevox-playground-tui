@@ -5,6 +5,7 @@ use mascot_render_client::{
     PREVIEW_MOUTH_FLAP_FPS,
 };
 use std::ffi::OsString;
+use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
