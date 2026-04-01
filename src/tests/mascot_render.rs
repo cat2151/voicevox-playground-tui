@@ -317,3 +317,38 @@ fn format_mascot_log_message_prefixes_timestamp_and_category() {
     assert!(chrono::DateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S%:z").is_ok());
     assert_eq!(rest, "port 62152 に 表示request を送信しました。");
 }
+
+#[test]
+fn blocking_overlay_message_stays_visible_until_dismissed() {
+    clear_overlay_message();
+
+    set_blocking_overlay_message("request failed".to_string());
+
+    assert_eq!(
+        current_overlay_message(),
+        Some(("request failed".to_string(), true))
+    );
+    assert!(has_blocking_overlay_message());
+
+    dismiss_blocking_overlay_message();
+
+    assert_eq!(current_overlay_message(), None);
+    assert!(!has_blocking_overlay_message());
+}
+
+#[test]
+fn log_mascot_request_result_shows_blocking_overlay_on_error() {
+    clear_overlay_message();
+    let address = SocketAddr::from(([127, 0, 0, 1], 62152));
+    let request = format_mascot_request("POST", "/timeline", address, None);
+    let result = Err(anyhow::anyhow!("connection refused"));
+
+    log_mascot_request_result("口パク", address, &request, &result);
+
+    let (message, dismiss_with_enter) = current_overlay_message().unwrap();
+    assert!(dismiss_with_enter);
+    assert!(message.contains("port 62152 への 口パクrequest 送信に失敗しました"));
+    assert!(message.contains("connection refused"));
+    assert!(message.contains("request:"));
+    assert!(message.contains("POST /timeline HTTP/1.1"));
+}
