@@ -63,6 +63,19 @@ fn is_cache_fresh(cache: &MascotPsdCache, cache_dir: &Option<PathBuf>) -> bool {
 
 pub(super) fn mascot_psd_list() -> MascotPsdList {
     let cache_dir = mascot_data_root().map(|path| path.join("cache"));
+    let initial_cached_list = {
+        let cache = mascot_psd_cache_slot().lock().unwrap();
+        if is_cache_fresh(&cache, &cache_dir) {
+            Some(cache.list.clone())
+        } else {
+            None
+        }
+    };
+    if let Some(list) = initial_cached_list {
+        return list;
+    }
+
+    let list = load_mascot_psd_list(cache_dir.as_deref());
     let rechecked_cached_list = {
         let cache = mascot_psd_cache_slot().lock().unwrap();
         if is_cache_fresh(&cache, &cache_dir) {
@@ -72,19 +85,6 @@ pub(super) fn mascot_psd_list() -> MascotPsdList {
         }
     };
     if let Some(list) = rechecked_cached_list {
-        return list;
-    }
-
-    let list = load_mascot_psd_list(cache_dir.as_deref());
-    let cached_list = {
-        let cache = mascot_psd_cache_slot().lock().unwrap();
-        if is_cache_fresh(&cache, &cache_dir) {
-            Some(cache.list.clone())
-        } else {
-            None
-        }
-    };
-    if let Some(list) = cached_list {
         return list;
     }
 
