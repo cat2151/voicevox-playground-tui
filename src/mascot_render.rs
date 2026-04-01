@@ -6,6 +6,7 @@ use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use chrono::Local;
 use mascot_render_client::{
     change_skin_mascot_render_server, mascot_render_server_address,
     play_timeline_mascot_render_server, preview_mouth_flap_timeline_request,
@@ -390,10 +391,21 @@ fn format_mascot_json_request<T: Serialize>(
     )
 }
 
+fn current_log_timestamp() -> String {
+    Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+}
+
+fn format_mascot_log_message(message: &str) -> String {
+    format!("[{}] [mascot-render] {message}", current_log_timestamp())
+}
+
 fn log_mascot_request(action: &str, request: &str, address: SocketAddr) {
     eprintln!(
-        "[mascot-render] port {} に {action}request を送信します。\nrequest:\n{request}",
-        address.port()
+        "{}\nrequest:\n{request}",
+        format_mascot_log_message(&format!(
+            "port {} に {action}request を送信します。",
+            address.port()
+        ))
     );
 }
 
@@ -404,12 +416,18 @@ fn log_mascot_request_result(
 ) {
     match result {
         Ok(()) => eprintln!(
-            "[mascot-render] port {} に {action}request を送信しました。",
-            address.port()
+            "{}",
+            format_mascot_log_message(&format!(
+                "port {} に {action}request を送信しました。",
+                address.port()
+            ))
         ),
         Err(error) => eprintln!(
-            "[mascot-render] port {} への {action}request 送信に失敗しました: {error}",
-            address.port()
+            "{}",
+            format_mascot_log_message(&format!(
+                "port {} への {action}request 送信に失敗しました: {error}",
+                address.port()
+            ))
         ),
     }
 }
