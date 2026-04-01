@@ -40,6 +40,28 @@ fn with_data_root_env<T>(value: Option<OsString>, f: impl FnOnce() -> T) -> T {
     f()
 }
 
+fn with_overlay_state_lock<T>(f: impl FnOnce() -> T) -> T {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    let _guard = LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    dismiss_blocking_overlay_message();
+    clear_overlay_message();
+    let result = f();
+    dismiss_blocking_overlay_message();
+    clear_overlay_message();
+    result
+}
+
+fn with_temp_mascot_log_dir<T>(f: impl FnOnce(&Path) -> T) -> T {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("vpt-mascot-log-{unique}"));
+    let result = with_data_root_env(Some(dir.as_os_str().to_os_string()), || f(&dir));
+    let _ = fs::remove_dir_all(&dir);
+    result
+}
+
 #[test]
 fn mascot_char_name_for_plain_line_uses_default_character() {
     speakers::init_test_table();
@@ -93,6 +115,13 @@ fn mascot_data_root_resolves_relative_env_under_local_data_dir() {
             mascot_data_root(),
             dirs::data_local_dir().map(|base| base.join(&relative_path))
         );
+    });
+}
+
+#[test]
+fn mascot_log_path_uses_data_root() {
+    with_temp_mascot_log_dir(|root| {
+        assert_eq!(mascot_log_path(), Some(root.join(LOG_FILE_NAME)));
     });
 }
 
@@ -316,4 +345,102 @@ fn format_mascot_log_message_prefixes_timestamp_and_category() {
         .unwrap();
     assert!(chrono::DateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S%:z").is_ok());
     assert_eq!(rest, "port 62152 に 表示request を送信しました。");
+}
+
+#[test]
+fn blocking_overlay_message_stays_visible_until_dismissed() {
+    with_overlay_state_lock(|| {
+        set_blocking_overlay_message("request failed".to_string());
+
+        assert_eq!(
+            current_overlay_message(),
+            Some(("request failed".to_string(), true))
+        );
+        assert!(has_blocking_overlay_message());
+
+        dismiss_blocking_overlay_message();
+
+        assert_eq!(current_overlay_message(), None);
+        assert!(!has_blocking_overlay_message());
+    });
+}
+
+#[test]
+fn non_blocking_overlay_does_not_replace_blocking_overlay() {
+    with_overlay_state_lock(|| {
+        set_blocking_overlay_message("request failed".to_string());
+        set_overlay_message("temporary info".to_string());
+
+        assert_eq!(
+            current_overlay_message(),
+            Some(("request failed".to_string(), true))
+        );
+
+        dismiss_blocking_overlay_message();
+        assert_eq!(current_overlay_message(), None);
+    });
+}
+
+#[test]
+fn clear_overlay_message_keeps_blocking_overlay_until_dismissed() {
+    with_overlay_state_lock(|| {
+        set_blocking_overlay_message("request failed".to_string());
+        clear_overlay_message();
+
+        assert_eq!(
+            current_overlay_message(),
+            Some(("request failed".to_string(), true))
+        );
+
+        dismiss_blocking_overlay_message();
+        assert_eq!(current_overlay_message(), None);
+    });
+}
+
+#[test]
+fn log_mascot_request_result_shows_blocking_overlay_on_error() {
+    with_overlay_state_lock(|| {
+        with_temp_mascot_log_dir(|dir| {
+            let address = SocketAddr::from(([127, 0, 0, 1], 62152));
+            let request = format_mascot_request("POST", "/timeline", address, None);
+            let result = Err(anyhow::anyhow!("connection refused"));
+
+            log_mascot_request_result("口パク", address, &request, &result);
+
+            let (message, dismiss_with_enter) = current_overlay_message().unwrap();
+            assert!(dismiss_with_enter);
+            assert!(message.contains("port 62152 への 口パクrequest 送信に失敗しました"));
+            assert!(message.contains("connection refused"));
+            assert!(message.contains("request:"));
+            assert!(message.contains("POST /timeline HTTP/1.1"));
+
+            let log = fs::read_to_string(dir.join(LOG_FILE_NAME)).unwrap();
+            assert!(log.contains("port 62152 への 口パクrequest 送信に失敗しました"));
+            assert!(log.contains("connection refused"));
+            assert!(log.contains("request:"));
+            assert!(log.contains("POST /timeline HTTP/1.1"));
+
+            dismiss_blocking_overlay_message();
+        });
+    });
+}
+
+#[test]
+fn log_mascot_request_result_writes_success_log_to_file() {
+    with_overlay_state_lock(|| {
+        with_temp_mascot_log_dir(|dir| {
+            let address = SocketAddr::from(([127, 0, 0, 1], 62152));
+            let request = format_mascot_request("POST", "/show", address, None);
+            let result = Ok(());
+
+            log_mascot_request_result("表示", address, &request, &result);
+
+            assert_eq!(current_overlay_message(), None);
+
+            let log = fs::read_to_string(dir.join(LOG_FILE_NAME)).unwrap();
+            assert!(log.contains("port 62152 に 表示request を送信しました。"));
+            assert!(log.contains("request:"));
+            assert!(log.contains("POST /show HTTP/1.1"));
+        });
+    });
 }

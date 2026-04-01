@@ -81,10 +81,10 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     lines::render_lines(f, app, chunks[0]);
     lines::render_status(f, app, chunks[1]);
 
-    overlay::render_mascot_overlay(f);
-
     // ヘルプモードはノーマルレイアウトの上にオーバーレイ表示する
     if app.mode == Mode::Help {
         help::render_help_overlay(f, app);
     }
+
+    overlay::render_mascot_overlay(f);
 }

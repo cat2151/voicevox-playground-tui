@@ -17,6 +17,7 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use tui_textarea::{Input, Key};
 
 use crate::app::{App, HelpAction, Mode, UpdateAction};
+use crate::mascot_render;
 use crate::ui;
 
 pub async fn run(app: &mut App) -> Result<()> {
@@ -96,6 +97,15 @@ pub async fn run(app: &mut App) -> Result<()> {
             if key.kind != event::KeyEventKind::Press {
                 continue;
             }
+        }
+
+        if mascot_render::has_blocking_overlay_message() {
+            if let Event::Key(key) = ev {
+                if key.code == KeyCode::Enter {
+                    mascot_render::dismiss_blocking_overlay_message();
+                }
+            }
+            continue;
         }
 
         match app.mode {

@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::Write;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
@@ -20,6 +21,7 @@ use crate::tag;
 const MIN_DURATION_MS: u64 = 100;
 const FALLBACK_DURATION_MS: u64 = 5_000;
 const DATA_ROOT_ENV: &str = "MASCOT_RENDER_SERVER_DATA_ROOT";
+const LOG_FILE_NAME: &str = "voicevox-playground-tui.log";
 const OVERLAY_DURATION: Duration = Duration::from_secs(5);
 const PSD_CACHE_TTL: Duration = Duration::from_secs(3);
 
@@ -59,7 +61,8 @@ struct MascotPsdMetaEntry {
 #[derive(Debug, Clone)]
 struct OverlayMessage {
     text: String,
-    expires_at: Instant,
+    expires_at: Option<Instant>,
+    dismiss_with_enter: bool,
 }
 
 pub fn sync_playback(line: &str, wav: &[u8]) {
@@ -292,25 +295,75 @@ fn overlay_message_slot() -> &'static Mutex<Option<OverlayMessage>> {
 }
 
 fn set_overlay_message(text: String) {
+    let mut slot = overlay_message_slot().lock().unwrap();
+    if slot
+        .as_ref()
+        .is_some_and(|message| message.dismiss_with_enter)
+    {
+        return;
+    }
+    *slot = Some(OverlayMessage {
+        text,
+        expires_at: Some(Instant::now() + OVERLAY_DURATION),
+        dismiss_with_enter: false,
+    });
+}
+
+fn set_blocking_overlay_message(text: String) {
     *overlay_message_slot().lock().unwrap() = Some(OverlayMessage {
         text,
-        expires_at: Instant::now() + OVERLAY_DURATION,
+        expires_at: None,
+        dismiss_with_enter: true,
     });
 }
 
 fn clear_overlay_message() {
-    *overlay_message_slot().lock().unwrap() = None;
+    let mut slot = overlay_message_slot().lock().unwrap();
+    if slot
+        .as_ref()
+        .is_some_and(|message| message.dismiss_with_enter)
+    {
+        return;
+    }
+    *slot = None;
 }
 
-pub(crate) fn current_overlay_message() -> Option<String> {
+pub(crate) fn current_overlay_message() -> Option<(String, bool)> {
     let mut slot = overlay_message_slot().lock().unwrap();
     match slot.as_ref() {
-        Some(message) if message.expires_at > Instant::now() => Some(message.text.clone()),
+        Some(message) if message.dismiss_with_enter => {
+            Some((message.text.clone(), message.dismiss_with_enter))
+        }
+        Some(message)
+            if message
+                .expires_at
+                .is_some_and(|expires_at| expires_at > Instant::now()) =>
+        {
+            Some((message.text.clone(), message.dismiss_with_enter))
+        }
         Some(_) => {
             *slot = None;
             None
         }
         None => None,
+    }
+}
+
+pub(crate) fn has_blocking_overlay_message() -> bool {
+    overlay_message_slot()
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_some_and(|message| message.dismiss_with_enter)
+}
+
+pub(crate) fn dismiss_blocking_overlay_message() {
+    let mut slot = overlay_message_slot().lock().unwrap();
+    if slot
+        .as_ref()
+        .is_some_and(|message| message.dismiss_with_enter)
+    {
+        *slot = None;
     }
 }
 
@@ -399,36 +452,52 @@ fn format_mascot_log_message(message: &str) -> String {
     format!("[{}] [mascot-render] {message}", current_log_timestamp())
 }
 
-fn log_mascot_request(action: &str, request: &str, address: SocketAddr) {
-    eprintln!(
-        "{}\nrequest:\n{request}",
-        format_mascot_log_message(&format!(
-            "port {} に {action}request を送信します。",
-            address.port()
-        ))
-    );
+fn mascot_log_path() -> Option<PathBuf> {
+    mascot_data_root().map(|root| root.join(LOG_FILE_NAME))
+}
+
+fn append_mascot_log(message: &str) -> anyhow::Result<()> {
+    let Some(path) = mascot_log_path() else {
+        return Ok(());
+    };
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    writeln!(file, "{message}")?;
+    Ok(())
 }
 
 fn log_mascot_request_result(
     action: &str,
     address: SocketAddr,
+    request: &str,
     result: &Result<(), anyhow::Error>,
 ) {
     match result {
-        Ok(()) => eprintln!(
-            "{}",
-            format_mascot_log_message(&format!(
-                "port {} に {action}request を送信しました。",
-                address.port()
-            ))
-        ),
-        Err(error) => eprintln!(
-            "{}",
-            format_mascot_log_message(&format!(
-                "port {} への {action}request 送信に失敗しました: {error}",
-                address.port()
-            ))
-        ),
+        Ok(()) => {
+            let _ = append_mascot_log(&format!(
+                "{}\nrequest:\n{request}",
+                format_mascot_log_message(&format!(
+                    "port {} に {action}request を送信しました。",
+                    address.port()
+                ))
+            ));
+        }
+        Err(error) => {
+            let message = format!(
+                "{}\nrequest:\n{request}",
+                format_mascot_log_message(&format!(
+                    "port {} への {action}request 送信に失敗しました: {error}",
+                    address.port()
+                ))
+            );
+            let _ = append_mascot_log(&message);
+            set_blocking_overlay_message(message);
+        }
     }
 }
 
@@ -436,9 +505,8 @@ fn handle_playback_sync(sync: MascotPlaybackSync) {
     let address = mascot_render_server_address();
 
     let show_request = format_mascot_request("POST", "/show", address, None);
-    log_mascot_request("表示", &show_request, address);
     let show_result = show_mascot_render_server();
-    log_mascot_request_result("表示", address, &show_result);
+    log_mascot_request_result("表示", address, &show_request, &show_result);
 
     if let Some(speaker) = sync.char_name.as_deref() {
         let psd_list = mascot_psd_list();
@@ -449,11 +517,11 @@ fn handle_playback_sync(sync: MascotPlaybackSync) {
             };
             let request =
                 format_mascot_json_request("POST", "/change-skin", address, &change_skin_request);
-            log_mascot_request(&format!("{speaker} へのskin変更"), &request, address);
             let change_skin_result = change_skin_mascot_render_server(&png_path);
             log_mascot_request_result(
                 &format!("{speaker} へのskin変更"),
                 address,
+                &request,
                 &change_skin_result,
             );
         } else {
@@ -470,9 +538,8 @@ fn handle_playback_sync(sync: MascotPlaybackSync) {
         .as_deref()
         .map(|speaker| format!("{speaker} の口パク"))
         .unwrap_or_else(|| "口パク".to_string());
-    log_mascot_request(&action, &request_log, address);
     let timeline_result = play_timeline_mascot_render_server(&request);
-    log_mascot_request_result(&action, address, &timeline_result);
+    log_mascot_request_result(&action, address, &request_log, &timeline_result);
 }
 
 fn motion_timeline_request(duration_ms: u64) -> MotionTimelineRequest {
