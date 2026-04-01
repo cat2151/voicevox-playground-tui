@@ -63,7 +63,7 @@ fn is_cache_fresh(cache: &MascotPsdCache, cache_dir: &Option<PathBuf>) -> bool {
 
 pub(super) fn mascot_psd_list() -> MascotPsdList {
     let cache_dir = mascot_data_root().map(|path| path.join("cache"));
-    let cached_list = {
+    let rechecked_cached_list = {
         let cache = mascot_psd_cache_slot().lock().unwrap();
         if is_cache_fresh(&cache, &cache_dir) {
             Some(cache.list.clone())
@@ -71,7 +71,7 @@ pub(super) fn mascot_psd_list() -> MascotPsdList {
             None
         }
     };
-    if let Some(list) = cached_list {
+    if let Some(list) = rechecked_cached_list {
         return list;
     }
 
