@@ -129,7 +129,7 @@ pub(super) fn log_mascot_request_result(
                     address.port()
                 ))
             );
-            set_blocking_overlay_message(message.clone());
+            set_blocking_overlay_message(&message);
             append_mascot_log(&message)
         }
     }

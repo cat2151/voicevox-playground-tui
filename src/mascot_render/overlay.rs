@@ -30,9 +30,9 @@ pub(super) fn set_overlay_message(text: String) {
     });
 }
 
-pub(super) fn set_blocking_overlay_message(text: String) {
+pub(super) fn set_blocking_overlay_message(text: impl Into<String>) {
     *overlay_message_slot().lock().unwrap() = Some(OverlayMessage {
-        text,
+        text: text.into(),
         expires_at: None,
         dismiss_with_enter: true,
     });

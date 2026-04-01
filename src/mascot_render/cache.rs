@@ -63,19 +63,32 @@ fn is_cache_fresh(cache: &MascotPsdCache, cache_dir: &Option<PathBuf>) -> bool {
 
 pub(super) fn mascot_psd_list() -> MascotPsdList {
     let cache_dir = mascot_data_root().map(|path| path.join("cache"));
-    {
+    let cached_list = {
         let cache = mascot_psd_cache_slot().lock().unwrap();
         if is_cache_fresh(&cache, &cache_dir) {
-            return cache.list.clone();
+            Some(cache.list.clone())
+        } else {
+            None
         }
+    };
+    if let Some(list) = cached_list {
+        return list;
     }
 
     let list = load_mascot_psd_list(cache_dir.as_deref());
-    let mut cache = mascot_psd_cache_slot().lock().unwrap();
-    if is_cache_fresh(&cache, &cache_dir) {
-        return cache.list.clone();
+    let cached_list = {
+        let cache = mascot_psd_cache_slot().lock().unwrap();
+        if is_cache_fresh(&cache, &cache_dir) {
+            Some(cache.list.clone())
+        } else {
+            None
+        }
+    };
+    if let Some(list) = cached_list {
+        return list;
     }
 
+    let mut cache = mascot_psd_cache_slot().lock().unwrap();
     cache.cache_dir = cache_dir;
     cache.loaded_at = Some(Instant::now());
     cache.list = list.clone();
