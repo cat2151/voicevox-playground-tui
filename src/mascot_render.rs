@@ -293,7 +293,14 @@ fn overlay_message_slot() -> &'static Mutex<Option<OverlayMessage>> {
 }
 
 fn set_overlay_message(text: String) {
-    *overlay_message_slot().lock().unwrap() = Some(OverlayMessage {
+    let mut slot = overlay_message_slot().lock().unwrap();
+    if slot
+        .as_ref()
+        .is_some_and(|message| message.dismiss_with_enter)
+    {
+        return;
+    }
+    *slot = Some(OverlayMessage {
         text,
         expires_at: Some(Instant::now() + OVERLAY_DURATION),
         dismiss_with_enter: false,
@@ -309,7 +316,14 @@ fn set_blocking_overlay_message(text: String) {
 }
 
 fn clear_overlay_message() {
-    *overlay_message_slot().lock().unwrap() = None;
+    let mut slot = overlay_message_slot().lock().unwrap();
+    if slot
+        .as_ref()
+        .is_some_and(|message| message.dismiss_with_enter)
+    {
+        return;
+    }
+    *slot = None;
 }
 
 pub(crate) fn current_overlay_message() -> Option<(String, bool)> {

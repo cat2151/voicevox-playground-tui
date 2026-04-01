@@ -337,6 +337,38 @@ fn blocking_overlay_message_stays_visible_until_dismissed() {
 }
 
 #[test]
+fn non_blocking_overlay_does_not_replace_blocking_overlay() {
+    clear_overlay_message();
+
+    set_blocking_overlay_message("request failed".to_string());
+    set_overlay_message("temporary info".to_string());
+
+    assert_eq!(
+        current_overlay_message(),
+        Some(("request failed".to_string(), true))
+    );
+
+    dismiss_blocking_overlay_message();
+    assert_eq!(current_overlay_message(), None);
+}
+
+#[test]
+fn clear_overlay_message_keeps_blocking_overlay_until_dismissed() {
+    clear_overlay_message();
+
+    set_blocking_overlay_message("request failed".to_string());
+    clear_overlay_message();
+
+    assert_eq!(
+        current_overlay_message(),
+        Some(("request failed".to_string(), true))
+    );
+
+    dismiss_blocking_overlay_message();
+    assert_eq!(current_overlay_message(), None);
+}
+
+#[test]
 fn log_mascot_request_result_shows_blocking_overlay_on_error() {
     clear_overlay_message();
     let address = SocketAddr::from(([127, 0, 0, 1], 62152));
