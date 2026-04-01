@@ -303,7 +303,7 @@ fn format_mascot_request_uses_brackets_for_ipv6_host_header() {
 fn current_log_timestamp_uses_human_readable_datetime_format() {
     let timestamp = current_log_timestamp();
 
-    assert!(chrono::NaiveDateTime::parse_from_str(&timestamp, "%Y-%m-%d %H:%M:%S").is_ok());
+    assert!(chrono::DateTime::parse_from_str(&timestamp, "%Y-%m-%d %H:%M:%S%:z").is_ok());
 }
 
 #[test]
@@ -314,6 +314,6 @@ fn format_mascot_log_message_prefixes_timestamp_and_category() {
         .strip_prefix('[')
         .and_then(|message| message.split_once("] [mascot-render] "))
         .unwrap();
-    assert!(chrono::NaiveDateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S").is_ok());
+    assert!(chrono::DateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S%:z").is_ok());
     assert_eq!(rest, "port 62152 に 表示request を送信しました。");
 }

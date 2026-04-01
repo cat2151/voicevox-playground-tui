@@ -392,7 +392,7 @@ fn format_mascot_json_request<T: Serialize>(
 }
 
 fn current_log_timestamp() -> String {
-    Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+    Local::now().format("%Y-%m-%d %H:%M:%S%:z").to_string()
 }
 
 fn format_mascot_log_message(message: &str) -> String {
