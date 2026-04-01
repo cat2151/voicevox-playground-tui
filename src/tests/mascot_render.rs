@@ -12,20 +12,32 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 fn with_data_root_env<T>(value: Option<OsString>, f: impl FnOnce() -> T) -> T {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    let _guard = LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+
+    struct EnvGuard {
+        original: Option<OsString>,
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match self.original.as_ref() {
+                Some(value) => std::env::set_var(DATA_ROOT_ENV, value),
+                None => std::env::remove_var(DATA_ROOT_ENV),
+            }
+        }
+    }
+
+    let _guard = LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let original = std::env::var_os(DATA_ROOT_ENV);
     match value.as_ref() {
         Some(value) => std::env::set_var(DATA_ROOT_ENV, value),
         None => std::env::remove_var(DATA_ROOT_ENV),
     }
+    let _env_guard = EnvGuard { original };
 
-    let result = f();
-
-    match original {
-        Some(value) => std::env::set_var(DATA_ROOT_ENV, value),
-        None => std::env::remove_var(DATA_ROOT_ENV),
-    }
-    result
+    f()
 }
 
 #[test]
