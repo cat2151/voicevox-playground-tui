@@ -4,9 +4,29 @@ use mascot_render_client::{
     preview_mouth_flap_timeline_request, ChangeSkinRequest, MotionTimelineKind,
     PREVIEW_MOUTH_FLAP_FPS,
 };
+use std::ffi::OsString;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+fn with_data_root_env<T>(value: Option<OsString>, f: impl FnOnce() -> T) -> T {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    let _guard = LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let original = std::env::var_os(DATA_ROOT_ENV);
+    match value.as_ref() {
+        Some(value) => std::env::set_var(DATA_ROOT_ENV, value),
+        None => std::env::remove_var(DATA_ROOT_ENV),
+    }
+
+    let result = f();
+
+    match original {
+        Some(value) => std::env::set_var(DATA_ROOT_ENV, value),
+        None => std::env::remove_var(DATA_ROOT_ENV),
+    }
+    result
+}
 
 #[test]
 fn mascot_char_name_for_plain_line_uses_default_character() {
@@ -43,6 +63,35 @@ fn mascot_char_name_for_explicit_character_tag_uses_tagged_character() {
         mascot_char_name_for_line("[四国めたん]こんにちは"),
         Some("四国めたん".to_string())
     );
+}
+
+#[test]
+fn default_mascot_data_root_uses_local_data_dir() {
+    assert_eq!(
+        default_mascot_data_root(),
+        dirs::data_local_dir().map(|base| base.join("mascot-render-server"))
+    );
+}
+
+#[test]
+fn mascot_data_root_resolves_relative_env_under_local_data_dir() {
+    with_data_root_env(Some(OsString::from("voicevox-playground-tui/logs")), || {
+        assert_eq!(
+            mascot_data_root(),
+            dirs::data_local_dir().map(|base| base.join("voicevox-playground-tui/logs"))
+        );
+    });
+}
+
+#[test]
+fn init_data_root_env_populates_default_root_when_env_is_unset() {
+    with_data_root_env(None, || {
+        init_data_root_env();
+        assert_eq!(
+            std::env::var_os(DATA_ROOT_ENV).map(PathBuf::from),
+            default_mascot_data_root()
+        );
+    });
 }
 
 #[test]

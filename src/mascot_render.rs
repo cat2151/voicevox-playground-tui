@@ -109,6 +109,18 @@ fn wav_duration_ms(wav: &[u8]) -> Option<u64> {
     Some(duration_ms.max(MIN_DURATION_MS))
 }
 
+pub(crate) fn init_data_root_env() {
+    if std::env::var_os(DATA_ROOT_ENV).is_none() {
+        if let Some(root) = default_mascot_data_root() {
+            std::env::set_var(DATA_ROOT_ENV, root);
+        }
+    }
+}
+
+fn default_mascot_data_root() -> Option<PathBuf> {
+    dirs::data_local_dir().map(|base| base.join("mascot-render-server"))
+}
+
 fn mascot_data_root() -> Option<PathBuf> {
     if let Some(root) = std::env::var_os(DATA_ROOT_ENV) {
         let path = PathBuf::from(root);
@@ -119,7 +131,7 @@ fn mascot_data_root() -> Option<PathBuf> {
         };
     }
 
-    dirs::data_local_dir().map(|base| base.join("mascot-render-server"))
+    default_mascot_data_root()
 }
 
 fn mascot_psd_cache_slot() -> &'static Mutex<MascotPsdCache> {

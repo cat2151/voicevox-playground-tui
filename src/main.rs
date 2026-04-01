@@ -50,6 +50,8 @@ async fn main() -> Result<()> {
         StartupMode::Clipboard | StartupMode::Normal => {}
     }
 
+    mascot_render::init_data_root_env();
+
     // エンジンが起動していなければ自動起動する
     engine_launcher::ensure_engine_running(BASE_URLS).await?;
 
