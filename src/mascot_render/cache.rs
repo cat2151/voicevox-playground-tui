@@ -54,22 +54,30 @@ fn mascot_psd_cache_slot() -> &'static Mutex<MascotPsdCache> {
     })
 }
 
-pub(super) fn mascot_psd_list() -> MascotPsdList {
-    let cache_dir = mascot_data_root().map(|path| path.join("cache"));
-    let mut cache = mascot_psd_cache_slot().lock().unwrap();
-    let now = Instant::now();
-    let cache_is_fresh = cache.cache_dir == cache_dir
+fn is_cache_fresh(cache: &MascotPsdCache, cache_dir: &Option<PathBuf>) -> bool {
+    cache.cache_dir == *cache_dir
         && cache
             .loaded_at
-            .is_some_and(|loaded_at| now.duration_since(loaded_at) < PSD_CACHE_TTL);
+            .is_some_and(|loaded_at| loaded_at.elapsed() < PSD_CACHE_TTL)
+}
 
-    if cache_is_fresh {
-        return cache.list.clone();
+pub(super) fn mascot_psd_list() -> MascotPsdList {
+    let cache_dir = mascot_data_root().map(|path| path.join("cache"));
+    {
+        let cache = mascot_psd_cache_slot().lock().unwrap();
+        if is_cache_fresh(&cache, &cache_dir) {
+            return cache.list.clone();
+        }
     }
 
     let list = load_mascot_psd_list(cache_dir.as_deref());
+    let mut cache = mascot_psd_cache_slot().lock().unwrap();
+    if is_cache_fresh(&cache, &cache_dir) {
+        return cache.list.clone();
+    }
+
     cache.cache_dir = cache_dir;
-    cache.loaded_at = Some(now);
+    cache.loaded_at = Some(Instant::now());
     cache.list = list.clone();
     list
 }

@@ -21,7 +21,10 @@ use self::cache::{mascot_psd_list, matching_skin_path, no_matching_skin_message_
 use self::cache::{mascot_psd_list_from_cache_dir, no_matching_skin_message, MascotPsdEntry};
 #[cfg(test)]
 use self::logging::{current_log_timestamp, format_mascot_log_message, mascot_log_path};
-use self::logging::{format_mascot_json_request, format_mascot_request, log_mascot_request_result};
+use self::logging::{
+    format_mascot_json_request, format_mascot_request, log_mascot_request_result,
+    report_mascot_log_failure,
+};
 #[cfg(test)]
 use self::overlay::set_blocking_overlay_message;
 use self::overlay::{clear_overlay_message, set_overlay_message};
@@ -127,7 +130,9 @@ fn handle_playback_sync(sync: MascotPlaybackSync) {
 
     let show_request = format_mascot_request("POST", "/show", address, None);
     let show_result = show_mascot_render_server();
-    log_mascot_request_result("表示", address, &show_request, &show_result);
+    if let Err(error) = log_mascot_request_result("表示", address, &show_request, &show_result) {
+        report_mascot_log_failure(&error);
+    }
 
     if let Some(speaker) = sync.char_name.as_deref() {
         let psd_list = mascot_psd_list();
@@ -139,12 +144,14 @@ fn handle_playback_sync(sync: MascotPlaybackSync) {
             let request =
                 format_mascot_json_request("POST", "/change-skin", address, &change_skin_request);
             let change_skin_result = change_skin_mascot_render_server(&png_path);
-            log_mascot_request_result(
+            if let Err(error) = log_mascot_request_result(
                 &format!("{speaker} へのskin変更"),
                 address,
                 &request,
                 &change_skin_result,
-            );
+            ) {
+                report_mascot_log_failure(&error);
+            }
         } else {
             set_overlay_message(no_matching_skin_message_for_list(speaker, &psd_list));
         }
@@ -160,7 +167,10 @@ fn handle_playback_sync(sync: MascotPlaybackSync) {
         .map(|speaker| format!("{speaker} の口パク"))
         .unwrap_or_else(|| "口パク".to_string());
     let timeline_result = play_timeline_mascot_render_server(&request);
-    log_mascot_request_result(&action, address, &request_log, &timeline_result);
+    if let Err(error) = log_mascot_request_result(&action, address, &request_log, &timeline_result)
+    {
+        report_mascot_log_failure(&error);
+    }
 }
 
 fn motion_timeline_request(duration_ms: u64) -> MotionTimelineRequest {

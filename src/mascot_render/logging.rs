@@ -100,22 +100,27 @@ fn append_mascot_log(message: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub(super) fn report_mascot_log_failure(error: &anyhow::Error) {
+    eprintln!(
+        "{}",
+        format_mascot_log_message(&format!("ログ書き込みに失敗しました: {error}"))
+    );
+}
+
 pub(super) fn log_mascot_request_result(
     action: &str,
     address: SocketAddr,
     request: &str,
     result: &Result<(), anyhow::Error>,
-) {
+) -> anyhow::Result<()> {
     match result {
-        Ok(()) => {
-            let _ = append_mascot_log(&format!(
-                "{}\nrequest:\n{request}",
-                format_mascot_log_message(&format!(
-                    "port {} に {action}request を送信しました。",
-                    address.port()
-                ))
-            ));
-        }
+        Ok(()) => append_mascot_log(&format!(
+            "{}\nrequest:\n{request}",
+            format_mascot_log_message(&format!(
+                "port {} に {action}request を送信しました。",
+                address.port()
+            ))
+        )),
         Err(error) => {
             let message = format!(
                 "{}\nrequest:\n{request}",
@@ -124,8 +129,8 @@ pub(super) fn log_mascot_request_result(
                     address.port()
                 ))
             );
-            let _ = append_mascot_log(&message);
-            set_blocking_overlay_message(message);
+            set_blocking_overlay_message(message.clone());
+            append_mascot_log(&message)
         }
     }
 }

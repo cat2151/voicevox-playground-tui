@@ -406,7 +406,7 @@ fn log_mascot_request_result_shows_blocking_overlay_on_error() {
             let request = format_mascot_request("POST", "/timeline", address, None);
             let result = Err(anyhow::anyhow!("connection refused"));
 
-            log_mascot_request_result("口パク", address, &request, &result);
+            log_mascot_request_result("口パク", address, &request, &result).unwrap();
 
             let (message, dismiss_with_enter) = current_overlay_message().unwrap();
             assert!(dismiss_with_enter);
@@ -434,7 +434,7 @@ fn log_mascot_request_result_writes_success_log_to_file() {
             let request = format_mascot_request("POST", "/show", address, None);
             let result = Ok(());
 
-            log_mascot_request_result("表示", address, &request, &result);
+            log_mascot_request_result("表示", address, &request, &result).unwrap();
 
             assert_eq!(current_overlay_message(), None);
 
@@ -443,5 +443,58 @@ fn log_mascot_request_result_writes_success_log_to_file() {
             assert!(log.contains("request:"));
             assert!(log.contains("POST /show HTTP/1.1"));
         });
+    });
+}
+
+#[test]
+fn log_mascot_request_result_returns_error_when_log_write_fails() {
+    with_overlay_state_lock(|| {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let file_path = std::env::temp_dir().join(format!("vpt-mascot-log-file-{unique}"));
+        fs::write(&file_path, "occupied").unwrap();
+
+        with_data_root_env(Some(file_path.as_os_str().to_os_string()), || {
+            let address = SocketAddr::from(([127, 0, 0, 1], 62152));
+            let request = format_mascot_request("POST", "/show", address, None);
+            let result = Ok(());
+
+            let log_result = log_mascot_request_result("表示", address, &request, &result);
+
+            assert!(log_result.is_err());
+            assert_eq!(current_overlay_message(), None);
+        });
+
+        let _ = fs::remove_file(file_path);
+    });
+}
+
+#[test]
+fn log_mascot_request_result_keeps_blocking_overlay_when_log_write_fails() {
+    with_overlay_state_lock(|| {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let file_path = std::env::temp_dir().join(format!("vpt-mascot-error-log-file-{unique}"));
+        fs::write(&file_path, "occupied").unwrap();
+
+        with_data_root_env(Some(file_path.as_os_str().to_os_string()), || {
+            let address = SocketAddr::from(([127, 0, 0, 1], 62152));
+            let request = format_mascot_request("POST", "/timeline", address, None);
+            let result = Err(anyhow::anyhow!("connection refused"));
+
+            let log_result = log_mascot_request_result("口パク", address, &request, &result);
+
+            assert!(log_result.is_err());
+            let (message, dismiss_with_enter) = current_overlay_message().unwrap();
+            assert!(dismiss_with_enter);
+            assert!(message.contains("connection refused"));
+        });
+
+        let _ = fs::remove_file(file_path);
+        dismiss_blocking_overlay_message();
     });
 }
