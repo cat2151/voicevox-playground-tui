@@ -26,7 +26,7 @@ fn with_data_root_env<T>(value: Option<OsString>, f: impl FnOnce() -> T) -> T {
         }
     }
 
-    let _guard = LOCK
+    let _mutex_guard = LOCK
         .get_or_init(|| Mutex::new(()))
         .lock()
         .unwrap_or_else(|error| error.into_inner());
