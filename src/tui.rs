@@ -154,12 +154,14 @@ fn handle_startup_load(
         }
         Ok(Err(err)) => {
             *startup_rx = None;
-            Err(err)
+            Err(err.context("startup error"))
         }
         Err(mpsc::error::TryRecvError::Empty) => Ok(false),
         Err(mpsc::error::TryRecvError::Disconnected) => {
             *startup_rx = None;
-            Err(anyhow::anyhow!("history loader disconnected"))
+            Err(anyhow::anyhow!(
+                "startup error: history loader disconnected"
+            ))
         }
     }
 }

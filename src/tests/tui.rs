@@ -60,28 +60,38 @@ fn should_exit_during_startup_only_on_ctrl_c_press() {
     assert!(!should_exit_during_startup(&release_ctrl_c));
 }
 
-#[tokio::test]
-async fn handle_startup_load_returns_error_when_loader_fails() {
-    let mut app = crate::app::App::new(vec![String::new()]);
-    let (tx, rx) = mpsc::unbounded_channel();
-    tx.send(Err(anyhow::anyhow!("boom"))).unwrap();
-    let mut startup_rx = Some(rx);
+#[test]
+fn handle_startup_load_returns_error_when_loader_fails() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    runtime.block_on(async {
+        let mut app = crate::app::App::new(vec![String::new()]);
+        let (tx, rx) = mpsc::unbounded_channel();
+        tx.send(Err(anyhow::anyhow!("boom"))).unwrap();
+        let mut startup_rx = Some(rx);
 
-    let err = handle_startup_load(&mut app, &mut startup_rx).unwrap_err();
+        let err = handle_startup_load(&mut app, &mut startup_rx).unwrap_err();
 
-    assert_eq!(err.to_string(), "boom");
-    assert!(startup_rx.is_none());
+        assert_eq!(err.to_string(), "startup error");
+        assert_eq!(err.source().unwrap().to_string(), "boom");
+        assert!(startup_rx.is_none());
+    });
 }
 
-#[tokio::test]
-async fn handle_startup_load_returns_error_when_loader_disconnects() {
-    let mut app = crate::app::App::new(vec![String::new()]);
-    let (tx, rx) = mpsc::unbounded_channel();
-    drop(tx);
-    let mut startup_rx = Some(rx);
+#[test]
+fn handle_startup_load_returns_error_when_loader_disconnects() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    runtime.block_on(async {
+        let mut app = crate::app::App::new(vec![String::new()]);
+        let (tx, rx) = mpsc::unbounded_channel();
+        drop(tx);
+        let mut startup_rx = Some(rx);
 
-    let err = handle_startup_load(&mut app, &mut startup_rx).unwrap_err();
+        let err = handle_startup_load(&mut app, &mut startup_rx).unwrap_err();
 
-    assert_eq!(err.to_string(), "history loader disconnected");
-    assert!(startup_rx.is_none());
+        assert_eq!(
+            err.to_string(),
+            "startup error: history loader disconnected"
+        );
+        assert!(startup_rx.is_none());
+    });
 }
