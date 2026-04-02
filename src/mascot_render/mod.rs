@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Sender};
+#[cfg(test)]
+use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::thread;
 
@@ -185,6 +187,18 @@ fn motion_timeline_request(duration_ms: u64) -> MotionTimelineRequest {
         });
     }
     request
+}
+
+#[cfg(test)]
+pub(crate) fn with_overlay_state_lock<T>(f: impl FnOnce() -> T) -> T {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    let _guard = LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    dismiss_blocking_overlay_message();
+    clear_overlay_message();
+    let result = f();
+    dismiss_blocking_overlay_message();
+    clear_overlay_message();
+    result
 }
 
 #[cfg(test)]
