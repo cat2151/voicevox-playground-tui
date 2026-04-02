@@ -24,6 +24,15 @@ cargo install --force --git https://github.com/cat2151/voicevox-playground-tui
 <your VOICEVOX directory>/vv-engine/run
 ```
 
+デフォルト以外の場所に `VOICEVOX` や `mascot-render-server` を置いている場合は、
+`AppData/Local/voicevox-playground-tui/config.toml` に次のように設定できます。
+
+```toml
+voicevox_path = "<your voicevox path>"
+voicevox_nemo_path = "<your voicevox nemo path>"
+mascot_render_server_path = "<your mascot-render-server path>"
+```
+
 ## 実行
 
 ```

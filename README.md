@@ -24,6 +24,15 @@ To use this application, you need to start the VOICEVOX engine.
 <your VOICEVOX directory>/vv-engine/run
 ```
 
+If `VOICEVOX` or `mascot-render-server` is installed in a non-default location, you can set
+their paths in `AppData/Local/voicevox-playground-tui/config.toml`:
+
+```toml
+voicevox_path = "<your voicevox path>"
+voicevox_nemo_path = "<your voicevox nemo path>"
+mascot_render_server_path = "<your mascot-render-server path>"
+```
+
 ## Execution
 
 ```
