@@ -169,6 +169,7 @@ impl App {
     }
 
     /// 起動後にバックグラウンドで読み込まれた履歴・セッション状態を適用する。
+    /// 将来的な再読み込みでも安全に使えるよう、既存の関連タスクは一旦停止してから差し替える。
     pub fn apply_loaded_history(
         &mut self,
         all_lines: super::AllTabLines,
@@ -195,6 +196,8 @@ impl App {
             Some(all_intonations.remove(0))
         };
         self.line_intonations = normalize_loaded_intonations(self.lines.len(), first_intonations);
+        // セッション状態がない場合の既定値として末尾行・非foldedを入れておき、
+        // 保存済み状態がある場合は restore_session_state() 側で上書きする。
         self.cursor = self.lines.len().saturating_sub(1);
         self.folded = false;
         self.tabs = vec![(vec![], vec![], 0usize, false)];

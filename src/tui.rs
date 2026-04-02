@@ -101,6 +101,9 @@ pub async fn run(
         let ev = event::read()?;
 
         if startup_pending {
+            if should_exit_during_startup(&ev) {
+                break;
+            }
             continue;
         }
 
@@ -158,6 +161,16 @@ fn handle_startup_load(
             true
         }
     }
+}
+
+fn should_exit_during_startup(ev: &Event) -> bool {
+    matches!(
+        ev,
+        Event::Key(key)
+            if key.kind == event::KeyEventKind::Press
+                && key.code == KeyCode::Char('c')
+                && key.modifiers.contains(event::KeyModifiers::CONTROL)
+    )
 }
 
 fn focus_change(ev: &Event) -> Option<bool> {

@@ -14,8 +14,11 @@ pub type LoadedHistoryResult = Result<LoadedHistory>;
 
 pub fn spawn_history_loader() -> mpsc::UnboundedReceiver<LoadedHistoryResult> {
     let (tx, rx) = mpsc::unbounded_channel();
-    tokio::task::spawn_blocking(move || {
-        let result = load_history();
+    tokio::spawn(async move {
+        let result = match tokio::task::spawn_blocking(load_history).await {
+            Ok(result) => result,
+            Err(err) => Err(anyhow::anyhow!("history loader task failed: {}", err)),
+        };
         let _ = tx.send(result);
     });
     rx
