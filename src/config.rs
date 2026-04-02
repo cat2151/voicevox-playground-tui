@@ -90,9 +90,9 @@ pub fn configured_executable_candidates(config: &EngineConfig) -> Vec<PathBuf> {
 }
 
 #[cfg(target_os = "windows")]
-const MASCOT_RENDER_SERVER_EXE_NAME: &str = "mascot-render-server.exe";
+pub(crate) const MASCOT_RENDER_SERVER_EXE_NAME: &str = "mascot-render-server.exe";
 #[cfg(not(target_os = "windows"))]
-const MASCOT_RENDER_SERVER_EXE_NAME: &str = "mascot-render-server";
+pub(crate) const MASCOT_RENDER_SERVER_EXE_NAME: &str = "mascot-render-server";
 
 pub fn configured_mascot_render_executable_candidates(config: &EngineConfig) -> Vec<PathBuf> {
     let Some(path) = config.mascot_render_server_path.as_ref() else {
@@ -100,7 +100,7 @@ pub fn configured_mascot_render_executable_candidates(config: &EngineConfig) -> 
     };
 
     let mut candidates = vec![path.clone()];
-    if path.file_name() != Some(OsStr::new(MASCOT_RENDER_SERVER_EXE_NAME)) {
+    if path.is_dir() || path.file_name() != Some(OsStr::new(MASCOT_RENDER_SERVER_EXE_NAME)) {
         candidates.push(path.join(MASCOT_RENDER_SERVER_EXE_NAME));
     }
     candidates

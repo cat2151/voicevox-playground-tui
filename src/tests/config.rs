@@ -1,4 +1,6 @@
 use super::*;
+use std::fs;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[test]
 fn parse_config_toml_reads_voicevox_keys() {
@@ -105,4 +107,29 @@ fn configured_mascot_render_executable_candidates_keeps_direct_executable_path()
         configured_mascot_render_executable_candidates(&config),
         vec![configured_path]
     );
+}
+
+#[test]
+fn configured_mascot_render_executable_candidates_supports_directory_named_like_executable() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let base_dir = std::env::temp_dir().join(format!("vpt-mascot-path-{unique}"));
+    let configured_path = base_dir.join("mascot-render-server");
+    fs::create_dir_all(&configured_path).unwrap();
+
+    let config = EngineConfig {
+        mascot_render_server_path: Some(configured_path.clone()),
+        ..EngineConfig::default()
+    };
+    let candidates = configured_mascot_render_executable_candidates(&config);
+
+    assert_eq!(candidates[0], configured_path);
+    assert_eq!(
+        candidates[1],
+        candidates[0].join(MASCOT_RENDER_SERVER_EXE_NAME)
+    );
+
+    let _ = fs::remove_dir_all(base_dir);
 }

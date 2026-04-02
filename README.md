@@ -25,7 +25,10 @@ To use this application, you need to start the VOICEVOX engine.
 ```
 
 If `VOICEVOX` or `mascot-render-server` is installed in a non-default location, you can set
-their paths in `AppData/Local/voicevox-playground-tui/config.toml`:
+their paths in `config.toml` under the app data directory used by this app
+(`dirs::data_local_dir()/voicevox-playground-tui`, for example
+`AppData/Local/voicevox-playground-tui` on Windows or
+`~/.local/share/voicevox-playground-tui` on Linux):
 
 ```toml
 voicevox_path = "<your voicevox path>"

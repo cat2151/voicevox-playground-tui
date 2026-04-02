@@ -115,17 +115,6 @@ fn launch_voicevox(exe: &std::path::Path) -> Result<()> {
     launch_detached_process(exe)
 }
 
-fn mascot_render_executable_name() -> &'static str {
-    #[cfg(target_os = "windows")]
-    {
-        "mascot-render-server.exe"
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        "mascot-render-server"
-    }
-}
-
 fn find_mascot_render_executable(config: &EngineConfig) -> Option<std::path::PathBuf> {
     let mut candidates = crate::config::configured_mascot_render_executable_candidates(config);
 
@@ -133,7 +122,7 @@ fn find_mascot_render_executable(config: &EngineConfig) -> Option<std::path::Pat
         candidates.push(
             home.join(".cargo")
                 .join("bin")
-                .join(mascot_render_executable_name()),
+                .join(crate::config::MASCOT_RENDER_SERVER_EXE_NAME),
         );
     }
 
@@ -144,7 +133,7 @@ fn find_mascot_render_executable(config: &EngineConfig) -> Option<std::path::Pat
                 local_app_data
                     .join("Programs")
                     .join("mascot-render-server")
-                    .join(mascot_render_executable_name()),
+                    .join(crate::config::MASCOT_RENDER_SERVER_EXE_NAME),
             );
         }
     }
