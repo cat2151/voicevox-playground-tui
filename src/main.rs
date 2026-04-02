@@ -8,6 +8,7 @@ mod history;
 mod mascot_render;
 mod player;
 mod speakers;
+mod startup;
 mod tag;
 mod tui;
 mod ui;
@@ -63,25 +64,29 @@ async fn main() -> Result<()> {
         return clipboard::run().await;
     }
 
-    let (all_lines, all_intonations) = history::load_all()?;
-    let mut app = App::new_with_tabs(all_lines, all_intonations);
-
-    // 前回終了時のタブ・カーソル位置・折りたたみ状態を復元する
-    let session_state = history::load_session_state();
-    app.restore_session_state(&session_state);
+    let startup_rx = if mode == StartupMode::Normal {
+        Some(startup::spawn_history_loader())
+    } else {
+        None
+    };
+    let mut app = App::new(vec![String::new()]);
+    if startup_rx.is_some() {
+        app.status_msg = String::from("[startup] loading history...");
+    }
 
     // バックグラウンドで自動アップデートチェックを開始する
     updater::spawn_update_check(std::sync::Arc::clone(&app.update_available));
 
-    app.init().await;
-    tui::run(&mut app).await?;
+    let exit_disposition = tui::run(&mut app, startup_rx).await?;
 
-    let final_lines = app.all_tab_lines();
-    let final_intonations = app.all_tab_intonations();
-    let final_session_state = app.collect_session_state();
+    if exit_disposition == tui::ExitDisposition::PersistState {
+        let final_lines = app.all_tab_lines();
+        let final_intonations = app.all_tab_intonations();
+        let final_session_state = app.collect_session_state();
 
-    history::save_all(&final_lines, &final_intonations)?;
-    history::save_session_state(&final_session_state)?;
+        history::save_all(&final_lines, &final_intonations)?;
+        history::save_session_state(&final_session_state)?;
+    }
 
     // ユーザーが選択したアップデート実行方法に応じて処理する
     match app.update_action {

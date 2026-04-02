@@ -1,6 +1,10 @@
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+use tokio::sync::mpsc;
 
-use super::{focus_change, handle_blocking_overlay, should_ignore_key_event};
+use super::{
+    focus_change, handle_blocking_overlay, handle_startup_load, should_exit_during_startup,
+    should_ignore_key_event,
+};
 
 #[test]
 fn focus_change_detects_focus_events() {
@@ -37,5 +41,57 @@ fn handle_blocking_overlay_returns_false_without_overlay() {
             KeyCode::Enter,
             KeyModifiers::NONE,
         ))));
+    });
+}
+
+#[test]
+fn should_exit_during_startup_only_on_ctrl_c_press() {
+    let ctrl_c = Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+    let plain_c = Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+    let release_ctrl_c = Event::Key(KeyEvent {
+        code: KeyCode::Char('c'),
+        modifiers: KeyModifiers::CONTROL,
+        kind: KeyEventKind::Release,
+        state: KeyEventState::NONE,
+    });
+
+    assert!(should_exit_during_startup(&ctrl_c));
+    assert!(!should_exit_during_startup(&plain_c));
+    assert!(!should_exit_during_startup(&release_ctrl_c));
+}
+
+#[test]
+fn handle_startup_load_returns_error_when_loader_fails() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    runtime.block_on(async {
+        let mut app = crate::app::App::new(vec![String::new()]);
+        let (tx, rx) = mpsc::unbounded_channel();
+        tx.send(Err(anyhow::anyhow!("boom"))).unwrap();
+        let mut startup_rx = Some(rx);
+
+        let err = handle_startup_load(&mut app, &mut startup_rx).unwrap_err();
+
+        assert_eq!(err.to_string(), "startup error");
+        assert_eq!(err.source().unwrap().to_string(), "boom");
+        assert!(startup_rx.is_none());
+    });
+}
+
+#[test]
+fn handle_startup_load_returns_error_when_loader_disconnects() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    runtime.block_on(async {
+        let mut app = crate::app::App::new(vec![String::new()]);
+        let (tx, rx) = mpsc::unbounded_channel();
+        drop(tx);
+        let mut startup_rx = Some(rx);
+
+        let err = handle_startup_load(&mut app, &mut startup_rx).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "startup error: history loader disconnected"
+        );
+        assert!(startup_rx.is_none());
     });
 }
