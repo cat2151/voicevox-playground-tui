@@ -131,5 +131,7 @@ fn configured_mascot_render_executable_candidates_supports_directory_named_like_
         candidates[0].join(MASCOT_RENDER_SERVER_EXE_NAME)
     );
 
-    fs::remove_dir_all(base_dir).unwrap();
+    if let Err(error) = fs::remove_dir_all(base_dir) {
+        eprintln!("failed to remove temp test directory: {error}");
+    }
 }
