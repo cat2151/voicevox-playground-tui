@@ -8,7 +8,6 @@ use std::ffi::OsString;
 use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn with_data_root_env<T>(value: Option<OsString>, f: impl FnOnce() -> T) -> T {
@@ -39,17 +38,6 @@ fn with_data_root_env<T>(value: Option<OsString>, f: impl FnOnce() -> T) -> T {
     let _env_guard = EnvGuard { original };
 
     f()
-}
-
-fn with_overlay_state_lock<T>(f: impl FnOnce() -> T) -> T {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    let _guard = LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    dismiss_blocking_overlay_message();
-    clear_overlay_message();
-    let result = f();
-    dismiss_blocking_overlay_message();
-    clear_overlay_message();
-    result
 }
 
 fn with_temp_mascot_log_dir<T>(f: impl FnOnce(&Path) -> T) -> T {
@@ -350,7 +338,7 @@ fn format_mascot_log_message_prefixes_timestamp_and_category() {
 
 #[test]
 fn blocking_overlay_message_stays_visible_until_dismissed() {
-    with_overlay_state_lock(|| {
+    crate::mascot_render::with_overlay_state_lock(|| {
         set_blocking_overlay_message("request failed".to_string());
 
         assert_eq!(
@@ -368,7 +356,7 @@ fn blocking_overlay_message_stays_visible_until_dismissed() {
 
 #[test]
 fn non_blocking_overlay_does_not_replace_blocking_overlay() {
-    with_overlay_state_lock(|| {
+    crate::mascot_render::with_overlay_state_lock(|| {
         set_blocking_overlay_message("request failed".to_string());
         set_overlay_message("temporary info".to_string());
 
@@ -384,7 +372,7 @@ fn non_blocking_overlay_does_not_replace_blocking_overlay() {
 
 #[test]
 fn clear_overlay_message_keeps_blocking_overlay_until_dismissed() {
-    with_overlay_state_lock(|| {
+    crate::mascot_render::with_overlay_state_lock(|| {
         set_blocking_overlay_message("request failed".to_string());
         clear_overlay_message();
 
@@ -400,7 +388,7 @@ fn clear_overlay_message_keeps_blocking_overlay_until_dismissed() {
 
 #[test]
 fn log_mascot_request_result_shows_blocking_overlay_on_error() {
-    with_overlay_state_lock(|| {
+    crate::mascot_render::with_overlay_state_lock(|| {
         with_temp_mascot_log_dir(|dir| {
             let address = SocketAddr::from(([127, 0, 0, 1], 62152));
             let request = format_mascot_request("POST", "/timeline", address, None);
@@ -428,7 +416,7 @@ fn log_mascot_request_result_shows_blocking_overlay_on_error() {
 
 #[test]
 fn log_mascot_request_result_writes_success_log_to_file() {
-    with_overlay_state_lock(|| {
+    crate::mascot_render::with_overlay_state_lock(|| {
         with_temp_mascot_log_dir(|dir| {
             let address = SocketAddr::from(([127, 0, 0, 1], 62152));
             let request = format_mascot_request("POST", "/show", address, None);
