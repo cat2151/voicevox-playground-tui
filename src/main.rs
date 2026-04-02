@@ -8,6 +8,7 @@ mod history;
 mod mascot_render;
 mod player;
 mod speakers;
+mod startup;
 mod tag;
 mod tui;
 mod ui;
@@ -63,18 +64,20 @@ async fn main() -> Result<()> {
         return clipboard::run().await;
     }
 
-    let (all_lines, all_intonations) = history::load_all()?;
-    let mut app = App::new_with_tabs(all_lines, all_intonations);
-
-    // 前回終了時のタブ・カーソル位置・折りたたみ状態を復元する
-    let session_state = history::load_session_state();
-    app.restore_session_state(&session_state);
+    let startup_rx = if mode == StartupMode::Normal {
+        Some(startup::spawn_history_loader())
+    } else {
+        None
+    };
+    let mut app = App::new(vec![String::new()]);
+    if startup_rx.is_some() {
+        app.status_msg = String::from("[startup] loading history...");
+    }
 
     // バックグラウンドで自動アップデートチェックを開始する
     updater::spawn_update_check(std::sync::Arc::clone(&app.update_available));
 
-    app.init().await;
-    tui::run(&mut app).await?;
+    tui::run(&mut app, startup_rx).await?;
 
     let final_lines = app.all_tab_lines();
     let final_intonations = app.all_tab_intonations();

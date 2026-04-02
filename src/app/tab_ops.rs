@@ -168,6 +168,70 @@ impl App {
         }
     }
 
+    /// 起動後にバックグラウンドで読み込まれた履歴・セッション状態を適用する。
+    pub fn apply_loaded_history(
+        &mut self,
+        all_lines: super::AllTabLines,
+        all_intonations: super::AllTabIntonations,
+        session_state: &crate::history::SessionState,
+    ) {
+        if let Some(handle) = self.bg_prefetch_handle.take() {
+            handle.abort();
+        }
+        if let Some(handle) = self.intonation_play_handle.take() {
+            handle.abort();
+        }
+
+        let mut all_lines = all_lines;
+        if all_lines.is_empty() {
+            all_lines.push(vec![String::new()]);
+        }
+        let mut all_intonations = all_intonations;
+
+        self.lines = super::utils::compress_trailing_empty(all_lines.remove(0));
+        let first_intonations = if all_intonations.is_empty() {
+            None
+        } else {
+            Some(all_intonations.remove(0))
+        };
+        self.line_intonations = normalize_loaded_intonations(self.lines.len(), first_intonations);
+        self.cursor = self.lines.len().saturating_sub(1);
+        self.folded = false;
+        self.tabs = vec![(vec![], vec![], 0usize, false)];
+        self.active_tab = 0;
+        self.mode = super::Mode::Normal;
+        self.textarea = tui_textarea::TextArea::default();
+        self.reset_pending_prefixes();
+        self.command_buf.clear();
+        self.help_key_buf.clear();
+        self.intonation_speaker_id = 0;
+        self.intonation_mora_texts.clear();
+        self.intonation_pitches.clear();
+        self.intonation_initial_pitches.clear();
+        self.intonation_query = serde_json::Value::Null;
+        self.intonation_cursor = 0;
+        self.intonation_num_buf.clear();
+        self.intonation_debounce = None;
+        self.intonation_graph_x = 0;
+        self.intonation_graph_y = 0;
+        self.intonation_graph_h = 0;
+        self.intonation_graph_pitch_top = 0.0;
+        self.intonation_mora_col_x.clear();
+        self.intonation_mora_col_w.clear();
+        self.esc_hint_until = None;
+
+        for (i, extra_lines) in all_lines.into_iter().enumerate() {
+            let extra_lines = super::utils::compress_trailing_empty(extra_lines);
+            let extra_intonations =
+                normalize_loaded_intonations(extra_lines.len(), all_intonations.get(i).cloned());
+            let extra_cursor = extra_lines.len().saturating_sub(1);
+            self.tabs
+                .push((extra_lines, extra_intonations, extra_cursor, false));
+        }
+
+        self.restore_session_state(session_state);
+    }
+
     /// コマンドモードのバッファに入力された文字列を解釈して実行する。
     pub async fn execute_command(&mut self) {
         let cmd = self.command_buf.trim().to_string();
@@ -180,3 +244,22 @@ impl App {
         }
     }
 }
+
+fn normalize_loaded_intonations(
+    line_len: usize,
+    loaded: Option<super::LineIntonations>,
+) -> super::LineIntonations {
+    let mut normalized = vec![None; line_len];
+    if let Some(loaded) = loaded {
+        for (i, slot) in loaded.into_iter().enumerate() {
+            if i < normalized.len() {
+                normalized[i] = slot;
+            }
+        }
+    }
+    normalized
+}
+
+#[cfg(test)]
+#[path = "../tests/app/tab_ops.rs"]
+mod tests;
