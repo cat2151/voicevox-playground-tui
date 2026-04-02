@@ -131,5 +131,5 @@ fn configured_mascot_render_executable_candidates_supports_directory_named_like_
         candidates[0].join(MASCOT_RENDER_SERVER_EXE_NAME)
     );
 
-    let _ = fs::remove_dir_all(base_dir);
+    fs::remove_dir_all(base_dir).unwrap();
 }
