@@ -23,10 +23,16 @@ use crate::mascot_render;
 use crate::startup::LoadedHistoryResult;
 use crate::ui;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExitDisposition {
+    PersistState,
+    SkipPersistState,
+}
+
 pub async fn run(
     app: &mut App,
     mut startup_rx: Option<mpsc::UnboundedReceiver<LoadedHistoryResult>>,
-) -> Result<()> {
+) -> Result<ExitDisposition> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(
@@ -75,7 +81,7 @@ pub async fn run(
 
         terminal.draw(|f| ui::draw(f, app))?;
 
-        if startup_pending && handle_startup_load(app, &mut startup_rx) {
+        if startup_pending && handle_startup_load(app, &mut startup_rx)? {
             startup_pending = false;
             needs_init = true;
         }
@@ -91,7 +97,7 @@ pub async fn run(
             && app.mode == Mode::Normal
         {
             app.update_action = Some(UpdateAction::Foreground);
-            break;
+            return Ok(ExitDisposition::PersistState);
         }
 
         if !event::poll(Duration::from_millis(100))? {
@@ -102,7 +108,7 @@ pub async fn run(
 
         if startup_pending {
             if should_exit_during_startup(&ev) {
-                break;
+                return Ok(ExitDisposition::SkipPersistState);
             }
             continue;
         }
@@ -122,20 +128,17 @@ pub async fn run(
         }
 
         if mode_handlers::handle_mode_event(app, ev).await == mode_handlers::LoopControl::Break {
-            break;
+            return Ok(ExitDisposition::PersistState);
         }
     }
-
-    // _guard がDrop時に端末を復帰させる
-    Ok(())
 }
 
 fn handle_startup_load(
     app: &mut App,
     startup_rx: &mut Option<mpsc::UnboundedReceiver<LoadedHistoryResult>>,
-) -> bool {
+) -> Result<bool> {
     let Some(rx) = startup_rx.as_mut() else {
-        return true;
+        return Ok(true);
     };
 
     match rx.try_recv() {
@@ -147,18 +150,16 @@ fn handle_startup_load(
             );
             app.status_msg = String::from("ready");
             *startup_rx = None;
-            true
+            Ok(true)
         }
         Ok(Err(err)) => {
-            app.status_msg = format!("[startup error] {}", err);
             *startup_rx = None;
-            true
+            Err(err)
         }
-        Err(mpsc::error::TryRecvError::Empty) => false,
+        Err(mpsc::error::TryRecvError::Empty) => Ok(false),
         Err(mpsc::error::TryRecvError::Disconnected) => {
-            app.status_msg = String::from("[startup error] history loader disconnected");
             *startup_rx = None;
-            true
+            Err(anyhow::anyhow!("history loader disconnected"))
         }
     }
 }
