@@ -3,6 +3,10 @@
 //! 起動完了まで待機する。
 
 use anyhow::Result;
+use mascot_render_client::{
+    mascot_render_server_address, mascot_render_server_healthcheck_at,
+    wait_for_mascot_render_server_healthcheck_at,
+};
 
 use crate::config::EngineConfig;
 
@@ -78,11 +82,10 @@ fn find_voicevox_executable(config: &EngineConfig) -> Option<std::path::PathBuf>
         candidates.push(std::path::PathBuf::from("/opt/voicevox/run"));
     }
 
-    candidates.into_iter().find(|p| p.exists())
+    candidates.into_iter().find(|p| p.is_file())
 }
 
-/// VOICEVOXを起動する。vptが終了してもVOICEVOXは起動し続ける（デタッチドプロセス）。
-fn launch_voicevox(exe: &std::path::Path) -> Result<()> {
+fn launch_detached_process(exe: &std::path::Path) -> Result<()> {
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -105,6 +108,66 @@ fn launch_voicevox(exe: &std::path::Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// VOICEVOXを起動する。vptが終了してもVOICEVOXは起動し続ける（デタッチドプロセス）。
+fn launch_voicevox(exe: &std::path::Path) -> Result<()> {
+    launch_detached_process(exe)
+}
+
+fn find_mascot_render_executable(config: &EngineConfig) -> Option<std::path::PathBuf> {
+    let mut candidates = crate::config::configured_mascot_render_executable_candidates(config);
+
+    if let Some(home) = dirs::home_dir() {
+        candidates.push(
+            home.join(".cargo")
+                .join("bin")
+                .join(crate::config::MASCOT_RENDER_SERVER_EXE_NAME),
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(local_app_data) = dirs::data_local_dir() {
+            candidates.push(
+                local_app_data
+                    .join("Programs")
+                    .join("mascot-render-server")
+                    .join(crate::config::MASCOT_RENDER_SERVER_EXE_NAME),
+            );
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        candidates.push(std::path::PathBuf::from(
+            "/Applications/mascot-render-server.app/Contents/MacOS/mascot-render-server",
+        ));
+    }
+
+    candidates.into_iter().find(|p| p.is_file())
+}
+
+fn launch_mascot_render_server(exe: &std::path::Path) -> Result<()> {
+    launch_detached_process(exe)
+}
+
+async fn is_mascot_render_running() -> bool {
+    let address = mascot_render_server_address();
+    tokio::task::spawn_blocking(move || mascot_render_server_healthcheck_at(address).is_ok())
+        .await
+        .unwrap_or(false)
+}
+
+async fn wait_for_mascot_render_server() -> Result<()> {
+    let address = mascot_render_server_address();
+    tokio::task::spawn_blocking(move || {
+        wait_for_mascot_render_server_healthcheck_at(
+            address,
+            std::time::Duration::from_secs(MAX_WAIT_SECS),
+        )
+    })
+    .await?
 }
 
 /// エンジンが起動するまでポーリングして待機する。
@@ -177,6 +240,34 @@ config.toml: {}\n\
     eprintln!("VOICEVOXエンジンが起動するまで待機しています...");
     wait_for_engine(wait_url).await?;
     eprintln!("VOICEVOXエンジンの起動が完了しました。");
+
+    Ok(())
+}
+
+/// mascot-render-server が起動していなければ自動起動し、起動完了まで待機する。
+/// 実行ファイルが見つからない場合は自動起動をスキップする。
+pub async fn ensure_mascot_render_running() -> Result<()> {
+    if is_mascot_render_running().await {
+        return Ok(());
+    }
+
+    let config = crate::config::load_or_create()?;
+    let Some(exe) = find_mascot_render_executable(&config) else {
+        eprintln!(
+            "mascot-render-server は起動しておらず、実行ファイルも見つからなかったため自動起動をスキップします。\n\
+config.toml: {}\n\
+設定キー: mascot_render_server_path",
+            crate::config::config_path().display()
+        );
+        return Ok(());
+    };
+
+    eprintln!("mascot-render-server を起動します: {}", exe.display());
+    launch_mascot_render_server(&exe)?;
+
+    eprintln!("mascot-render-server が起動するまで待機しています...");
+    wait_for_mascot_render_server().await?;
+    eprintln!("mascot-render-server の起動が完了しました。");
 
     Ok(())
 }

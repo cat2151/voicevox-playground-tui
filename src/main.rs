@@ -52,6 +52,9 @@ async fn main() -> Result<()> {
     }
 
     mascot_render::init_data_root_env();
+    if let Err(error) = engine_launcher::ensure_mascot_render_running().await {
+        eprintln!("mascot-render-server の自動起動に失敗しました: {error:#}");
+    }
 
     // エンジンが起動していなければ自動起動する
     engine_launcher::ensure_engine_running(BASE_URLS).await?;
