@@ -7,7 +7,7 @@ use std::sync::{
     Arc,
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use cat_self_update_lib::{check_remote_commit, self_update, CheckResult};
 
 const REPO_OWNER: &str = "cat2151";
@@ -17,6 +17,20 @@ const BIN_NAME: &str = "vpt";
 
 /// ビルド時に埋め込まれたgit commit hash
 const LOCAL_HASH: &str = env!("GIT_COMMIT_HASH");
+
+fn check_remote_commit_sync() -> std::result::Result<CheckResult, Box<dyn std::error::Error>> {
+    check_remote_commit(REPO_OWNER, REPO_NAME, MAIN_BRANCH, LOCAL_HASH)
+}
+
+async fn run_self_update_blocking() -> Result<()> {
+    tokio::task::spawn_blocking(|| {
+        self_update(REPO_OWNER, REPO_NAME, &[BIN_NAME]).map_err(|error| format!("{error:#}"))
+    })
+    .await
+    .context("アップデートタスクの実行に失敗しました")?
+    .map_err(|error| anyhow!(error))?;
+    Ok(())
+}
 
 /// バックグラウンドでアップデートチェックを実行する。
 /// 更新が必要な場合は `update_available` を true にセットし、ユーザーの選択を待つ。
@@ -35,14 +49,9 @@ async fn check_for_update(update_available: Arc<AtomicBool>) -> Result<()> {
         return Ok(());
     }
 
-    let result = match tokio::task::spawn_blocking(|| {
-        check_remote_commit(REPO_OWNER, REPO_NAME, MAIN_BRANCH, LOCAL_HASH)
-            .map_err(|error| anyhow!(error.to_string()))
-    })
-    .await
-    {
-        Ok(Ok(result)) => result,
-        Ok(Err(_)) | Err(_) => return Ok(()),
+    let result = match tokio::task::block_in_place(check_remote_commit_sync) {
+        Ok(result) => result,
+        Err(_) => return Ok(()),
     };
 
     if !is_update_available(&result) {
@@ -60,28 +69,23 @@ fn is_update_available(result: &CheckResult) -> bool {
     !local.is_empty() && local != "unknown" && !result.is_up_to_date()
 }
 
-/// 表でアップデートする（端末にビルドログを表示しながら cargo install を実行）。
-/// TUIを終了してから呼び出すこと。
+/// TUI終了後に前景でアップデート処理を実行する。
+/// 標準出力に開始メッセージを表示してから `cat_self_update_lib::self_update()` を呼び出す。
 pub async fn run_foreground_update() -> Result<()> {
     println!("アップデートを開始します...");
-    self_update(REPO_OWNER, REPO_NAME, &[BIN_NAME])
-        .map_err(|error| anyhow!("アップデートに失敗しました: {error}"))
+    run_self_update_blocking().await
 }
 
 /// updateサブコマンド用のself updateを実行する。
 pub async fn run_self_update() -> Result<()> {
     println!("セルフアップデートを開始します...");
-    self_update(REPO_OWNER, REPO_NAME, &[BIN_NAME])
-        .map_err(|error| anyhow!("セルフアップデートに失敗しました: {error}"))
+    run_self_update_blocking().await
 }
 
 /// checkサブコマンド用のアップデートチェックを実行する。
 pub async fn run_check() -> Result<()> {
-    let result = tokio::task::spawn_blocking(|| {
-        check_remote_commit(REPO_OWNER, REPO_NAME, MAIN_BRANCH, LOCAL_HASH)
-            .map_err(|error| anyhow!(error.to_string()))
-    })
-    .await??;
+    let result = tokio::task::block_in_place(check_remote_commit_sync)
+        .map_err(|error| anyhow!("{error:#}"))?;
 
     println!("{result}");
     Ok(())
