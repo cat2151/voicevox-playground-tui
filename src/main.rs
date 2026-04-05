@@ -28,11 +28,13 @@ enum StartupMode {
     Normal,
     Clipboard,
     Update,
+    Check,
 }
 
 fn startup_mode(args: &[String]) -> StartupMode {
     match args {
         [_, command] if command == "update" => StartupMode::Update,
+        [_, command] if command == "check" => StartupMode::Check,
         _ if args.iter().any(|arg| arg == "--clipboard") => StartupMode::Clipboard,
         _ => StartupMode::Normal,
     }
@@ -46,6 +48,10 @@ async fn main() -> Result<()> {
     match mode {
         StartupMode::Update => {
             updater::run_self_update().await?;
+            return Ok(());
+        }
+        StartupMode::Check => {
+            updater::run_check().await?;
             return Ok(());
         }
         StartupMode::Clipboard | StartupMode::Normal => {}

@@ -11,6 +11,12 @@ fn startup_mode_is_update_when_only_update_subcommand_is_provided() {
 }
 
 #[test]
+fn startup_mode_is_check_when_only_check_subcommand_is_provided() {
+    let actual = startup_mode(&args(&["vpt", "check"]));
+    assert_eq!(actual, StartupMode::Check);
+}
+
+#[test]
 fn startup_mode_is_not_update_when_extra_args_are_present() {
     let actual = startup_mode(&args(&["vpt", "update", "--clipboard"]));
     assert_eq!(actual, StartupMode::Clipboard);

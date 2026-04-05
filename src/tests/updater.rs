@@ -1,22 +1,19 @@
-use super::{update_bat_content, GIT_URL};
+use cat_self_update_lib::compare_hashes;
 
 #[test]
-fn update_bat_contains_install_command() {
-    let bat = update_bat_content(None);
-    assert!(bat.contains("cargo install --force --git"));
-    assert!(bat.contains(GIT_URL));
+fn update_is_available_when_hashes_differ_and_local_hash_is_known() {
+    let result = compare_hashes("local-hash", "remote-hash");
+    assert!(super::is_update_available(&result));
 }
 
 #[test]
-fn self_update_bat_does_not_restart_vpt() {
-    let bat = update_bat_content(None);
-    assert!(!bat.contains("start \"\" /b vpt"));
+fn update_is_not_available_when_hashes_match() {
+    let result = compare_hashes("same-hash", "same-hash");
+    assert!(!super::is_update_available(&result));
 }
 
 #[test]
-fn foreground_update_bat_restarts_vpt_only_after_install_succeeds() {
-    let bat = update_bat_content(Some("vpt"));
-    assert!(bat.contains("&& start \"\" /b vpt"));
-    assert!(bat.contains("del \"%~f0\""));
-    assert!(!bat.contains("(goto)"));
+fn update_is_not_available_when_local_hash_is_unknown() {
+    let result = compare_hashes("unknown", "remote-hash");
+    assert!(!super::is_update_available(&result));
 }

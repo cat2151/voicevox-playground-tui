@@ -17,6 +17,7 @@ rodio       = "0.19"
 tokio       = { version = "1", features = ["full"] }
 dirs        = "5"
 anyhow      = "1"
+cat-self-update-lib = { git = "https://github.com/cat2151/cat-self-update", branch = "main" }
 tui-textarea = "0.7"
 arboard      = { version = "3.6.1", default-features = false }
 unicode-width = "0.2"
