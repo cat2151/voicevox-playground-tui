@@ -7,7 +7,9 @@ use chrono::Local;
 use serde::Serialize;
 
 use super::overlay::set_blocking_overlay_message;
-use super::{mascot_data_root, LOG_FILE_NAME};
+
+const REQUEST_LOG_DIR_NAME: &str = "logs";
+const REQUEST_LOG_FILE_NAME: &str = "request.log";
 
 fn indented_lines(text: &str) -> String {
     text.lines()
@@ -82,7 +84,11 @@ pub(super) fn format_mascot_log_message(message: &str) -> String {
 }
 
 pub(super) fn mascot_log_path() -> Option<PathBuf> {
-    mascot_data_root().map(|root| root.join(LOG_FILE_NAME))
+    Some(
+        crate::history::history_dir()
+            .join(REQUEST_LOG_DIR_NAME)
+            .join(REQUEST_LOG_FILE_NAME),
+    )
 }
 
 fn append_mascot_log(message: &str) -> anyhow::Result<()> {
