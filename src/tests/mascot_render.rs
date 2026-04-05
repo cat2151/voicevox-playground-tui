@@ -40,14 +40,64 @@ fn with_data_root_env<T>(value: Option<OsString>, f: impl FnOnce() -> T) -> T {
     f()
 }
 
-fn with_temp_mascot_log_dir<T>(f: impl FnOnce(&Path) -> T) -> T {
+fn local_data_dir_env_name() -> &'static str {
+    #[cfg(target_os = "windows")]
+    {
+        "LOCALAPPDATA"
+    }
+    #[cfg(target_os = "macos")]
+    {
+        "HOME"
+    }
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    {
+        "XDG_DATA_HOME"
+    }
+}
+
+fn with_local_data_dir_env<T>(value: Option<OsString>, f: impl FnOnce() -> T) -> T {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    struct EnvGuard {
+        name: &'static str,
+        original: Option<OsString>,
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match self.original.as_ref() {
+                Some(value) => std::env::set_var(self.name, value),
+                None => std::env::remove_var(self.name),
+            }
+        }
+    }
+
+    let _mutex_guard = LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let name = local_data_dir_env_name();
+    let original = std::env::var_os(name);
+    match value.as_ref() {
+        Some(value) => std::env::set_var(name, value),
+        None => std::env::remove_var(name),
+    }
+    let _env_guard = EnvGuard { name, original };
+
+    f()
+}
+
+fn with_temp_request_log_dir<T>(f: impl FnOnce(&Path) -> T) -> T {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let dir = std::env::temp_dir().join(format!("vpt-mascot-log-{unique}"));
-    let result = with_data_root_env(Some(dir.as_os_str().to_os_string()), || f(&dir));
-    let _ = fs::remove_dir_all(&dir);
+    let base_dir = std::env::temp_dir().join(format!("vpt-local-data-{unique}"));
+    let result = with_local_data_dir_env(Some(base_dir.as_os_str().to_os_string()), || {
+        let log_dir = crate::history::history_dir().join("logs");
+        f(&log_dir)
+    });
+    let _ = fs::remove_dir_all(&base_dir);
     result
 }
 
@@ -108,9 +158,9 @@ fn mascot_data_root_resolves_relative_env_under_local_data_dir() {
 }
 
 #[test]
-fn mascot_log_path_uses_data_root() {
-    with_temp_mascot_log_dir(|root| {
-        assert_eq!(mascot_log_path(), Some(root.join(LOG_FILE_NAME)));
+fn mascot_log_path_uses_app_logs_dir() {
+    with_temp_request_log_dir(|log_dir| {
+        assert_eq!(mascot_log_path(), Some(log_dir.join("request.log")));
     });
 }
 
@@ -389,7 +439,7 @@ fn clear_overlay_message_keeps_blocking_overlay_until_dismissed() {
 #[test]
 fn log_mascot_request_result_shows_blocking_overlay_on_error() {
     crate::mascot_render::with_overlay_state_lock(|| {
-        with_temp_mascot_log_dir(|dir| {
+        with_temp_request_log_dir(|dir| {
             let address = SocketAddr::from(([127, 0, 0, 1], 62152));
             let request = format_mascot_request("POST", "/timeline", address, None);
             let result = Err(anyhow::anyhow!("connection refused"));
@@ -403,7 +453,7 @@ fn log_mascot_request_result_shows_blocking_overlay_on_error() {
             assert!(message.contains("request:"));
             assert!(message.contains("POST /timeline HTTP/1.1"));
 
-            let log = fs::read_to_string(dir.join(LOG_FILE_NAME)).unwrap();
+            let log = fs::read_to_string(dir.join("request.log")).unwrap();
             assert!(log.contains("port 62152 への 口パクrequest 送信に失敗しました"));
             assert!(log.contains("connection refused"));
             assert!(log.contains("request:"));
@@ -417,7 +467,7 @@ fn log_mascot_request_result_shows_blocking_overlay_on_error() {
 #[test]
 fn log_mascot_request_result_writes_success_log_to_file() {
     crate::mascot_render::with_overlay_state_lock(|| {
-        with_temp_mascot_log_dir(|dir| {
+        with_temp_request_log_dir(|dir| {
             let address = SocketAddr::from(([127, 0, 0, 1], 62152));
             let request = format_mascot_request("POST", "/show", address, None);
             let result = Ok(());
@@ -426,7 +476,7 @@ fn log_mascot_request_result_writes_success_log_to_file() {
 
             assert_eq!(current_overlay_message(), None);
 
-            let log = fs::read_to_string(dir.join(LOG_FILE_NAME)).unwrap();
+            let log = fs::read_to_string(dir.join("request.log")).unwrap();
             assert!(log.contains("port 62152 に 表示request を送信しました。"));
             assert!(log.contains("request:"));
             assert!(log.contains("POST /show HTTP/1.1"));
@@ -444,7 +494,7 @@ fn log_mascot_request_result_returns_error_when_log_write_fails() {
         let file_path = std::env::temp_dir().join(format!("vpt-mascot-log-file-{unique}"));
         fs::write(&file_path, "occupied").unwrap();
 
-        with_data_root_env(Some(file_path.as_os_str().to_os_string()), || {
+        with_local_data_dir_env(Some(file_path.as_os_str().to_os_string()), || {
             let address = SocketAddr::from(([127, 0, 0, 1], 62152));
             let request = format_mascot_request("POST", "/show", address, None);
             let result = Ok(());
@@ -469,7 +519,7 @@ fn log_mascot_request_result_keeps_blocking_overlay_when_log_write_fails() {
         let file_path = std::env::temp_dir().join(format!("vpt-mascot-error-log-file-{unique}"));
         fs::write(&file_path, "occupied").unwrap();
 
-        with_data_root_env(Some(file_path.as_os_str().to_os_string()), || {
+        with_local_data_dir_env(Some(file_path.as_os_str().to_os_string()), || {
             let address = SocketAddr::from(([127, 0, 0, 1], 62152));
             let request = format_mascot_request("POST", "/timeline", address, None);
             let result = Err(anyhow::anyhow!("connection refused"));

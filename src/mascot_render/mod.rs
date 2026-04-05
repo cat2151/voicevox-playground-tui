@@ -37,7 +37,6 @@ pub(crate) use self::overlay::{
 const MIN_DURATION_MS: u64 = 100;
 const FALLBACK_DURATION_MS: u64 = 5_000;
 const DATA_ROOT_ENV: &str = "MASCOT_RENDER_SERVER_DATA_ROOT";
-const LOG_FILE_NAME: &str = "voicevox-playground-tui.log";
 const OVERLAY_DURATION: std::time::Duration = std::time::Duration::from_secs(5);
 const PSD_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(3);
 
