@@ -7,6 +7,8 @@ use std::sync::{Mutex, OnceLock};
 
 use super::DATA_ROOT_ENV;
 
+const MAX_TEMP_DIR_RETRIES: usize = 1024;
+
 pub(super) fn with_data_root_env<T>(value: Option<OsString>, f: impl FnOnce() -> T) -> T {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -94,7 +96,7 @@ impl TempRequestLogDir {
 
         let temp_root = std::env::temp_dir();
         let process_id = std::process::id();
-        for _ in 0..1024 {
+        for _ in 0..MAX_TEMP_DIR_RETRIES {
             let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
             let base_dir = temp_root.join(format!("vpt-local-data-{process_id}-{unique}"));
             match fs::create_dir(&base_dir) {

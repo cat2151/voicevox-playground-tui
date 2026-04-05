@@ -80,10 +80,8 @@ fn with_temp_request_log_dir_cleans_up_base_dir_after_panic() {
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         with_temp_request_log_dir(|log_dir| {
-            base_dir = log_dir
-                .parent()
-                .and_then(Path::parent)
-                .map(Path::to_path_buf);
+            let history_dir = log_dir.parent().expect("log dir should have a parent");
+            base_dir = history_dir.parent().map(Path::to_path_buf);
             panic!("expected panic");
         });
     }));
