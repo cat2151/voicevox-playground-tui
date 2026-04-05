@@ -18,10 +18,14 @@ const BIN_NAME: &str = "vpt";
 /// ビルド時に埋め込まれたgit commit hash
 const LOCAL_HASH: &str = env!("GIT_COMMIT_HASH");
 
+/// `block_in_place` から呼び出す同期的な更新確認ヘルパー。
+/// `check_remote_commit()` の結果をそのまま返し、呼び出し側で失敗時の扱いを決める。
 fn check_remote_commit_sync() -> std::result::Result<CheckResult, Box<dyn std::error::Error>> {
     check_remote_commit(REPO_OWNER, REPO_NAME, MAIN_BRANCH, LOCAL_HASH)
 }
 
+/// `self_update()` を `spawn_blocking` 上で実行する。
+/// 更新処理は同期的で重くなりうるため、tokio ランタイムのワーカースレッドを塞がないようにする。
 async fn run_self_update_blocking() -> Result<()> {
     tokio::task::spawn_blocking(|| {
         self_update(REPO_OWNER, REPO_NAME, &[BIN_NAME]).map_err(|error| format!("{error:#}"))
