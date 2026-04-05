@@ -7,40 +7,33 @@ use std::sync::{
     Arc,
 };
 
-use anyhow::Result;
+use anyhow::{anyhow, Context, Result};
+use cat_self_update_lib::{check_remote_commit, self_update, CheckResult};
 
 const REPO_OWNER: &str = "cat2151";
 const REPO_NAME: &str = "voicevox-playground-tui";
-const GIT_URL: &str = "https://github.com/cat2151/voicevox-playground-tui";
+const MAIN_BRANCH: &str = "main";
+const BIN_NAME: &str = "vpt";
 
 /// ビルド時に埋め込まれたgit commit hash
 const LOCAL_HASH: &str = env!("GIT_COMMIT_HASH");
 
-/// リモートのmainブランチの最新commit hashをGitHub APIで取得する
-async fn fetch_remote_hash() -> Result<String> {
-    let client = reqwest::Client::builder()
-        .user_agent("voicevox-playground-tui-updater")
-        .timeout(std::time::Duration::from_secs(10))
-        .build()?;
+/// `block_in_place` から呼び出す同期的な更新確認ヘルパー。
+/// `check_remote_commit()` の結果をそのまま返し、呼び出し側で失敗時の扱いを決める。
+fn check_remote_commit_sync() -> std::result::Result<CheckResult, Box<dyn std::error::Error>> {
+    check_remote_commit(REPO_OWNER, REPO_NAME, MAIN_BRANCH, LOCAL_HASH)
+}
 
-    let url = format!(
-        "https://api.github.com/repos/{}/{}/commits/main",
-        REPO_OWNER, REPO_NAME
-    );
-
-    let resp: serde_json::Value = client
-        .get(&url)
-        .header("Accept", "application/vnd.github.v3+json")
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?;
-
-    resp["sha"]
-        .as_str()
-        .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("SHA field not found in GitHub API response"))
+/// `self_update()` を `spawn_blocking` 上で実行する。
+/// 更新処理は同期的で重くなりうるため、tokio ランタイムのワーカースレッドを塞がないようにする。
+async fn run_self_update_blocking() -> Result<()> {
+    tokio::task::spawn_blocking(|| {
+        self_update(REPO_OWNER, REPO_NAME, &[BIN_NAME]).map_err(|error| format!("{error:#}"))
+    })
+    .await
+    .context("アップデートタスクの実行に失敗しました")?
+    .map_err(|error| anyhow!(error))?;
+    Ok(())
 }
 
 /// バックグラウンドでアップデートチェックを実行する。
@@ -60,16 +53,12 @@ async fn check_for_update(update_available: Arc<AtomicBool>) -> Result<()> {
         return Ok(());
     }
 
-    // リモートhashを取得
-    let remote_hash = match fetch_remote_hash().await {
-        Ok(h) => h,
-        Err(_) => return Ok(()), // ネットワークエラーはサイレントに無視
+    let result = match tokio::task::block_in_place(check_remote_commit_sync) {
+        Ok(result) => result,
+        Err(_) => return Ok(()),
     };
 
-    let local = LOCAL_HASH.trim();
-
-    // hashが不明またはリモートと一致していれば何もしない
-    if local == "unknown" || local.is_empty() || remote_hash == local {
+    if !is_update_available(&result) {
         return Ok(());
     }
 
@@ -79,128 +68,31 @@ async fn check_for_update(update_available: Arc<AtomicBool>) -> Result<()> {
     Ok(())
 }
 
-fn install_command() -> String {
-    format!("cargo install --force --git {GIT_URL}")
+fn is_update_available(result: &CheckResult) -> bool {
+    let local = result.embedded_hash.trim();
+    !local.is_empty() && local != "unknown" && !result.is_up_to_date()
 }
 
-#[cfg(any(target_os = "windows", test))]
-fn update_bat_content(relaunch_command: Option<&str>) -> String {
-    let install = install_command();
-    let mut script = String::from("@echo off\r\ntimeout /t 3 /nobreak >nul\r\n");
-    match relaunch_command {
-        Some(command) => {
-            script.push_str(&format!("{install} && start \"\" /b {command}\r\n"));
-        }
-        None => {
-            script.push_str(&install);
-            script.push_str("\r\n");
-        }
-    }
-    script.push_str("del \"%~f0\"\r\n");
-    script
-}
-
-#[cfg(target_os = "windows")]
-fn write_update_script(prefix: &str, relaunch_command: Option<&str>) -> Result<std::path::PathBuf> {
-    use std::io::Write;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    let pid = std::process::id();
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let script_path = std::env::temp_dir().join(format!("{prefix}_{pid}_{timestamp}.bat"));
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&script_path)?;
-    file.write_all(update_bat_content(relaunch_command).as_bytes())?;
-    Ok(script_path)
-}
-
-/// Windowsでのアップデートを行うバッチファイルをspawnする。
-/// スクリプトは: メインプロセス終了を待つ → cargo install → 必要なら vpt を起動。
-/// ユニークなファイル名を使い、実行後に自身を削除する。
-#[cfg(target_os = "windows")]
-fn spawn_updater_process(relaunch_command: Option<&str>) -> Result<()> {
-    let script_path = write_update_script("vpt_updater", relaunch_command)?;
-    let script_str = script_path
-        .to_str()
-        .ok_or_else(|| anyhow::anyhow!("Updater script path contains invalid UTF-8"))?;
-    std::process::Command::new("cmd")
-        .args(["/C", "start", "vpt updater", script_str])
-        .spawn()?;
-    Ok(())
-}
-
-#[cfg(not(target_os = "windows"))]
-async fn run_install() -> Result<()> {
-    let install_command = install_command();
-    println!("{install_command}");
-
-    let status = tokio::task::spawn_blocking(move || {
-        std::process::Command::new("cargo")
-            .args(["install", "--force", "--git", GIT_URL])
-            .stdout(std::process::Stdio::inherit())
-            .stderr(std::process::Stdio::inherit())
-            .status()
-    })
-    .await??;
-
-    if !status.success() {
-        anyhow::bail!("アップデートに失敗しました。");
-    }
-
-    Ok(())
-}
-
-/// 表でアップデートする（端末にビルドログを表示しながら cargo install を実行）。
-/// TUIを終了してから呼び出すこと。
-/// Windowsではexeファイルのロックにより直接インストールできないため、バッチファイルを使用する。
+/// TUI終了後に前景でアップデート処理を実行する。
+/// 標準出力に開始メッセージを表示してから `cat_self_update_lib::self_update()` を呼び出す。
 pub async fn run_foreground_update() -> Result<()> {
-    #[cfg(target_os = "windows")]
-    {
-        println!("アップデートをバッチファイルで開始します...");
-        spawn_updater_process(Some("vpt")).map_err(|e| {
-            anyhow::anyhow!("バッチファイルアップデーターの起動に失敗しました: {}", e)
-        })?;
-        Ok(())
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        println!("アップデートを開始します...");
-        run_install().await?;
-        println!("アップデート成功！再起動します...");
-        if let Err(e) = std::process::Command::new("vpt").spawn() {
-            eprintln!("vptの再起動に失敗しました: {}", e);
-        }
-
-        Ok(())
-    }
+    println!("アップデートを開始します...");
+    run_self_update_blocking().await
 }
 
 /// updateサブコマンド用のself updateを実行する。
-/// Windowsでは自分自身のexeを置き換えるため、batを起動して即時終了する。
 pub async fn run_self_update() -> Result<()> {
-    #[cfg(target_os = "windows")]
-    {
-        println!("セルフアップデートをバッチファイルで開始します...");
-        spawn_updater_process(None).map_err(|e| {
-            anyhow::anyhow!(
-                "セルフアップデート用バッチファイルの起動に失敗しました: {}",
-                e
-            )
-        })?;
-        Ok(())
-    }
+    println!("セルフアップデートを開始します...");
+    run_self_update_blocking().await
+}
 
-    #[cfg(not(target_os = "windows"))]
-    {
-        println!("セルフアップデートを開始します...");
-        run_install().await
-    }
+/// checkサブコマンド用のアップデートチェックを実行する。
+pub async fn run_check() -> Result<()> {
+    let result = tokio::task::block_in_place(check_remote_commit_sync)
+        .map_err(|error| anyhow!("{error:#}"))?;
+
+    println!("{result}");
+    Ok(())
 }
 
 #[cfg(test)]
