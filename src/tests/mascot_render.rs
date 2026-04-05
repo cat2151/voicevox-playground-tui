@@ -95,8 +95,10 @@ fn with_temp_request_log_dir<T>(f: impl FnOnce(&Path) -> T) -> T {
     let base_dir = std::env::temp_dir().join(format!("vpt-local-data-{unique}"));
     let result = with_local_data_dir_env(Some(base_dir.as_os_str().to_os_string()), || {
         let log_dir = mascot_log_path()
-            .and_then(|path| path.parent().map(Path::to_path_buf))
-            .unwrap();
+            .expect("request log path should always resolve under the app data directory")
+            .parent()
+            .map(Path::to_path_buf)
+            .expect("request log path should always have a parent logs directory");
         f(&log_dir)
     });
     let _ = fs::remove_dir_all(&base_dir);
