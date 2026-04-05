@@ -75,6 +75,25 @@ fn mascot_log_path_uses_app_logs_dir() {
 }
 
 #[test]
+fn with_temp_request_log_dir_cleans_up_base_dir_after_panic() {
+    let mut base_dir = None;
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        with_temp_request_log_dir(|log_dir| {
+            base_dir = log_dir
+                .parent()
+                .and_then(Path::parent)
+                .map(Path::to_path_buf);
+            panic!("expected panic");
+        });
+    }));
+
+    assert!(result.is_err());
+    let base_dir = base_dir.expect("base dir should be captured");
+    assert!(!base_dir.exists());
+}
+
+#[test]
 fn init_data_root_env_populates_default_root_when_env_is_unset() {
     with_data_root_env(None, || {
         init_data_root_env();
