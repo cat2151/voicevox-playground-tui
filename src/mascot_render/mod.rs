@@ -17,6 +17,8 @@ use crate::tag;
 mod cache;
 mod logging;
 mod overlay;
+#[cfg(test)]
+mod test_support;
 
 use self::cache::{mascot_psd_list, matching_skin_path, no_matching_skin_message_for_list};
 #[cfg(test)]
