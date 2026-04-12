@@ -2,6 +2,11 @@
 
 セリフを書けばすぐ再生 - 思考の速度でずんだもん -
 
+## 特徴
+- しゃべる
+- デスクトップマスコット連動 : [mascot-render-server](https://github.com/cat2151/mascot-render-server/blob/main/README.ja.md)
+    - 坂本アヒル氏の立ち絵素材zipをそのままデスクトップマスコットとして表示、しゃべる
+
 ## 必要なもの
 
 - [VOICEVOX](https://voicevox.hiroshiba.jp/) 
