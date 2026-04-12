@@ -13,7 +13,7 @@ use cat_self_update_lib::{check_remote_commit, self_update, CheckResult};
 const REPO_OWNER: &str = "cat2151";
 const REPO_NAME: &str = "voicevox-playground-tui";
 const MAIN_BRANCH: &str = "main";
-const BIN_NAME: &str = "vpt";
+const SELF_UPDATE_CRATES: &[&str] = &[];
 
 /// ビルド時に埋め込まれたgit commit hash
 const LOCAL_HASH: &str = env!("GIT_COMMIT_HASH");
@@ -28,7 +28,7 @@ fn check_remote_commit_sync() -> std::result::Result<CheckResult, Box<dyn std::e
 /// 更新処理は同期的で重くなりうるため、tokio ランタイムのワーカースレッドを塞がないようにする。
 async fn run_self_update_blocking() -> Result<()> {
     tokio::task::spawn_blocking(|| {
-        self_update(REPO_OWNER, REPO_NAME, &[BIN_NAME]).map_err(|error| format!("{error:#}"))
+        self_update(REPO_OWNER, REPO_NAME, SELF_UPDATE_CRATES).map_err(|error| format!("{error:#}"))
     })
     .await
     .context("アップデートタスクの実行に失敗しました")?
