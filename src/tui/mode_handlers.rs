@@ -1,10 +1,9 @@
-use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{Event, KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use tui_textarea::{Input, Key};
 
-use crate::app::{App, HelpAction, Mode, UpdateAction};
+use crate::app::{App, HelpAction, Mode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum LoopControl {
@@ -25,12 +24,7 @@ pub(super) async fn handle_mode_event(app: &mut App, ev: Event) -> LoopControl {
 async fn handle_normal_mode(app: &mut App, ev: Event) -> LoopControl {
     if let Event::Key(key) = ev {
         match key.code {
-            KeyCode::Char('q') => {
-                if app.update_available.load(Ordering::Relaxed) {
-                    app.update_action = Some(UpdateAction::Foreground);
-                }
-                return LoopControl::Break;
-            }
+            KeyCode::Char('q') => return LoopControl::Break,
             KeyCode::Char('j') | KeyCode::Down | KeyCode::Enter => {
                 let count = app.take_count();
                 app.move_cursor(count as i32).await;
@@ -282,12 +276,7 @@ async fn handle_help_mode(app: &mut App, ev: Event) -> LoopControl {
                         HelpAction::TabNext => app.tab_next(),
                         HelpAction::TabPrev => app.tab_prev(),
                         HelpAction::TabNew => app.tabnew(),
-                        HelpAction::Quit => {
-                            if app.update_available.load(Ordering::Relaxed) {
-                                app.update_action = Some(UpdateAction::Foreground);
-                            }
-                            return LoopControl::Break;
-                        }
+                        HelpAction::Quit => return LoopControl::Break,
                         HelpAction::None => {}
                     }
                 }

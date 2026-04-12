@@ -16,7 +16,7 @@ mod updater;
 mod voicevox;
 
 use anyhow::Result;
-use app::{App, UpdateAction};
+use app::App;
 
 const BASE_URLS: &[&str] = &[
     "http://localhost:50021", // VOICEVOX
@@ -87,9 +87,6 @@ async fn main() -> Result<()> {
     }
     engine_launcher::spawn_mascot_render_startup();
 
-    // バックグラウンドで自動アップデートチェックを開始する
-    updater::spawn_update_check(std::sync::Arc::clone(&app.update_available));
-
     let exit_disposition = tui::run(&mut app, history_rx, runtime_startup_rx).await?;
 
     if exit_disposition == tui::ExitDisposition::PersistState {
@@ -99,16 +96,6 @@ async fn main() -> Result<()> {
 
         history::save_all(&final_lines, &final_intonations)?;
         history::save_session_state(&final_session_state)?;
-    }
-
-    // ユーザーが選択したアップデート実行方法に応じて処理する
-    match app.update_action {
-        Some(UpdateAction::Foreground) => {
-            if let Err(e) = updater::run_foreground_update().await {
-                eprintln!("フォアグラウンドアップデートに失敗しました: {}", e);
-            }
-        }
-        None => {}
     }
 
     Ok(())

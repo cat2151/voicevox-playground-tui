@@ -52,13 +52,6 @@ pub type AllTabLines = Vec<Vec<String>>;
 pub type AllTabIntonations = Vec<LineIntonations>;
 pub type TabSlot = (Vec<String>, LineIntonations, usize, bool);
 
-/// アップデート実行方法の選択結果
-#[derive(Debug, Clone, PartialEq)]
-pub enum UpdateAction {
-    /// 表でアップデート（端末にビルドログを表示）
-    Foreground,
-}
-
 pub struct App {
     pub lines: Vec<String>,
     pub cursor: usize,
@@ -84,10 +77,6 @@ pub struct App {
     pub folded: bool,
     /// fetchワーカーがAPI呼び出し中かどうか
     pub is_fetching: IsFetching,
-    /// アップデートが利用可能かどうか（バックグラウンドチェックがセットする）
-    pub update_available: Arc<AtomicBool>,
-    /// ユーザーが選択したアップデート実行方法
-    pub update_action: Option<UpdateAction>,
     /// バックグラウンドprefetchタスクのハンドル（カーソル移動時にキャンセル）
     bg_prefetch_handle: Option<JoinHandle<()>>,
     /// NormalモードでESCを押した際に"q:quit"ヒントをハイライト表示する期限
@@ -183,8 +172,6 @@ impl App {
             yank_buf: None,
             folded: false,
             is_fetching,
-            update_available: Arc::new(AtomicBool::new(false)),
-            update_action: None,
             bg_prefetch_handle: None,
             esc_hint_until: None,
             last_autosave: Instant::now(),
