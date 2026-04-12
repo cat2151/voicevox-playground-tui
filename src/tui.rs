@@ -3,7 +3,6 @@
 mod mode_handlers;
 
 use std::io;
-use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -18,7 +17,7 @@ use crossterm::{
 use ratatui::{backend::CrosstermBackend, Terminal};
 use tokio::sync::mpsc;
 
-use crate::app::{App, Mode, UpdateAction};
+use crate::app::{App, Mode};
 use crate::mascot_render;
 use crate::startup::{LoadedHistoryResult, RuntimeStartupEvent};
 use crate::ui;
@@ -99,15 +98,6 @@ pub async fn run(
             app.status_msg = String::from("ready");
             app.init().await;
             needs_init = false;
-        }
-
-        // アップデートが利用可能になったら自動的にアップデートを開始する
-        if !startup_pending
-            && app.update_available.load(Ordering::Relaxed)
-            && app.mode == Mode::Normal
-        {
-            app.update_action = Some(UpdateAction::Foreground);
-            return Ok(ExitDisposition::PersistState);
         }
 
         if !event::poll(Duration::from_millis(100))? {

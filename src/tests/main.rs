@@ -29,6 +29,12 @@ fn startup_mode_is_clipboard_when_clipboard_flag_is_present() {
 }
 
 #[test]
+fn startup_mode_is_normal_when_check_subcommand_has_extra_args() {
+    let actual = startup_mode(&args(&["vpt", "check", "--verbose"]));
+    assert_eq!(actual, StartupMode::Normal);
+}
+
+#[test]
 fn startup_mode_is_normal_without_update_or_clipboard() {
     let actual = startup_mode(&args(&["vpt"]));
     assert_eq!(actual, StartupMode::Normal);

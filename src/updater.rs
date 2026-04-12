@@ -1,11 +1,4 @@
-//! 自動アップデート機能。
-//! 起動時にGitHubのmainブランチのhashをチェックし、
-//! ローカルのhashと異なる場合はユーザーに選択を委ねる。
-
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
+//! update / check サブコマンド用の更新機能。
 
 use anyhow::{anyhow, Context, Result};
 use cat_self_update_lib::{check_remote_commit, self_update, CheckResult};
@@ -39,50 +32,6 @@ async fn run_self_update_blocking() -> Result<()> {
     .context("アップデートタスクの実行に失敗しました")?
     .map_err(|error| anyhow!(error))?;
     Ok(())
-}
-
-/// バックグラウンドでアップデートチェックを実行する。
-/// 更新が必要な場合は `update_available` を true にセットし、ユーザーの選択を待つ。
-pub fn spawn_update_check(update_available: Arc<AtomicBool>) {
-    tokio::spawn(async move {
-        if let Err(e) = check_for_update(update_available).await {
-            // TUI動作中のためeprintlnは使わない（表示崩れ防止）
-            let _ = e; // エラーは無視してサイレントに失敗する
-        }
-    });
-}
-
-async fn check_for_update(update_available: Arc<AtomicBool>) -> Result<()> {
-    // デバッグビルド時は自動アップデートをスキップ（開発中の誤更新を防止）
-    if cfg!(debug_assertions) {
-        return Ok(());
-    }
-
-    let result = match tokio::task::block_in_place(check_remote_commit_sync) {
-        Ok(result) => result,
-        Err(_) => return Ok(()),
-    };
-
-    if !is_update_available(&result) {
-        return Ok(());
-    }
-
-    // アップデートが利用可能: フラグをセットしてユーザーの選択を待つ
-    update_available.store(true, Ordering::Relaxed);
-
-    Ok(())
-}
-
-fn is_update_available(result: &CheckResult) -> bool {
-    let local = result.embedded_hash.trim();
-    !local.is_empty() && local != "unknown" && !result.is_up_to_date()
-}
-
-/// TUI終了後に前景でアップデート処理を実行する。
-/// 標準出力に開始メッセージを表示してから `cat_self_update_lib::self_update()` を呼び出す。
-pub async fn run_foreground_update() -> Result<()> {
-    println!("アップデートを開始します...");
-    run_self_update_blocking().await
 }
 
 /// updateサブコマンド用のself updateを実行する。
