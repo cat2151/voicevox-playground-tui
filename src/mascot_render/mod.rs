@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Sender};
 #[cfg(test)]
@@ -6,32 +7,32 @@ use std::sync::OnceLock;
 use std::thread;
 
 use mascot_render_client::{
-    change_skin_mascot_render_server, mascot_render_server_address,
+    change_character_mascot_render_server, mascot_render_server_address,
     play_timeline_mascot_render_server, preview_mouth_flap_timeline_request,
-    show_mascot_render_server, ChangeSkinRequest, MotionTimelineKind, MotionTimelineRequest,
-    MotionTimelineStep, PREVIEW_MOUTH_FLAP_FPS,
+    show_mascot_render_server, PREVIEW_MOUTH_FLAP_FPS,
+};
+use mascot_render_protocol::{
+    ChangeCharacterRequest, MotionTimelineKind, MotionTimelineRequest, MotionTimelineStep,
 };
 
 use crate::tag;
 
-mod cache;
 mod logging;
 mod overlay;
 #[cfg(test)]
 mod test_support;
 
-use self::cache::{mascot_psd_list, matching_skin_path, no_matching_skin_message_for_list};
-#[cfg(test)]
-use self::cache::{mascot_psd_list_from_cache_dir, no_matching_skin_message, MascotPsdEntry};
 #[cfg(test)]
 use self::logging::{current_log_timestamp, format_mascot_log_message, mascot_log_path};
 use self::logging::{
     format_mascot_json_request, format_mascot_request, log_mascot_request_result,
     report_mascot_log_failure,
 };
+use self::overlay::clear_overlay_message;
 #[cfg(test)]
 use self::overlay::set_blocking_overlay_message;
-use self::overlay::{clear_overlay_message, set_overlay_message};
+#[cfg(test)]
+use self::overlay::set_overlay_message;
 pub(crate) use self::overlay::{
     current_overlay_message, dismiss_blocking_overlay_message, has_blocking_overlay_message,
 };
@@ -39,8 +40,8 @@ pub(crate) use self::overlay::{
 const MIN_DURATION_MS: u64 = 100;
 const FALLBACK_DURATION_MS: u64 = 5_000;
 const DATA_ROOT_ENV: &str = "MASCOT_RENDER_SERVER_DATA_ROOT";
+#[cfg(test)]
 const OVERLAY_DURATION: std::time::Duration = std::time::Duration::from_secs(5);
-const PSD_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(3);
 
 pub fn sync_playback(line: &str, wav: &[u8]) {
     if line.trim().is_empty() || wav.is_empty() {
@@ -102,6 +103,7 @@ fn default_mascot_data_root() -> Option<PathBuf> {
     dirs::data_local_dir().map(|base| base.join("mascot-render-server"))
 }
 
+#[cfg(test)]
 fn mascot_data_root() -> Option<PathBuf> {
     if let Some(root) = std::env::var_os(DATA_ROOT_ENV) {
         let path = PathBuf::from(root);
@@ -128,6 +130,32 @@ fn mascot_worker_tx() -> &'static Sender<MascotPlaybackSync> {
     })
 }
 
+fn sync_character_change<F>(address: SocketAddr, speaker: Option<&str>, change_character: F) -> bool
+where
+    F: FnOnce(&str) -> anyhow::Result<()>,
+{
+    let Some(speaker) = speaker else {
+        clear_overlay_message();
+        return true;
+    };
+
+    clear_overlay_message();
+    let request_body = ChangeCharacterRequest {
+        character_name: speaker.to_string(),
+    };
+    let request = format_mascot_json_request("POST", "/change-character", address, &request_body);
+    let change_character_result = change_character(speaker);
+    if let Err(error) = log_mascot_request_result(
+        &format!("{speaker} へのcharacter変更"),
+        address,
+        &request,
+        &change_character_result,
+    ) {
+        report_mascot_log_failure(&error);
+    }
+    change_character_result.is_ok()
+}
+
 fn handle_playback_sync(sync: MascotPlaybackSync) {
     let address = mascot_render_server_address();
 
@@ -137,29 +165,12 @@ fn handle_playback_sync(sync: MascotPlaybackSync) {
         report_mascot_log_failure(&error);
     }
 
-    if let Some(speaker) = sync.char_name.as_deref() {
-        let psd_list = mascot_psd_list();
-        if let Some(png_path) = matching_skin_path(speaker, &psd_list.entries) {
-            clear_overlay_message();
-            let change_skin_request = ChangeSkinRequest {
-                png_path: png_path.clone(),
-            };
-            let request =
-                format_mascot_json_request("POST", "/change-skin", address, &change_skin_request);
-            let change_skin_result = change_skin_mascot_render_server(&png_path);
-            if let Err(error) = log_mascot_request_result(
-                &format!("{speaker} へのskin変更"),
-                address,
-                &request,
-                &change_skin_result,
-            ) {
-                report_mascot_log_failure(&error);
-            }
-        } else {
-            set_overlay_message(no_matching_skin_message_for_list(speaker, &psd_list));
-        }
-    } else {
-        clear_overlay_message();
+    if !sync_character_change(
+        address,
+        sync.char_name.as_deref(),
+        change_character_mascot_render_server,
+    ) {
+        return;
     }
 
     let request = motion_timeline_request(sync.duration_ms);
@@ -193,7 +204,10 @@ fn motion_timeline_request(duration_ms: u64) -> MotionTimelineRequest {
 #[cfg(test)]
 pub(crate) fn with_overlay_state_lock<T>(f: impl FnOnce() -> T) -> T {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    let _guard = LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let _guard = LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     dismiss_blocking_overlay_message();
     clear_overlay_message();
     let result = f();

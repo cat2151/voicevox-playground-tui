@@ -55,35 +55,8 @@ fn local_data_dir_env_name() -> &'static str {
 }
 
 pub(super) fn with_local_data_dir_env<T>(value: Option<OsString>, f: impl FnOnce() -> T) -> T {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-    struct EnvGuard {
-        name: &'static str,
-        original: Option<OsString>,
-    }
-
-    impl Drop for EnvGuard {
-        fn drop(&mut self) {
-            match self.original.as_ref() {
-                Some(value) => std::env::set_var(self.name, value),
-                None => std::env::remove_var(self.name),
-            }
-        }
-    }
-
-    let _mutex_guard = LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
-    let name = local_data_dir_env_name();
-    let original = std::env::var_os(name);
-    match value.as_ref() {
-        Some(value) => std::env::set_var(name, value),
-        None => std::env::remove_var(name),
-    }
-    let _env_guard = EnvGuard { name, original };
-
-    f()
+    let _ = local_data_dir_env_name();
+    crate::history::with_local_data_dir_override(value.map(PathBuf::from), f)
 }
 
 struct TempRequestLogDir {

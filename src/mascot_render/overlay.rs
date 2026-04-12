@@ -1,6 +1,7 @@
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
+#[cfg(test)]
 use super::OVERLAY_DURATION;
 
 #[derive(Debug, Clone)]
@@ -15,8 +16,11 @@ fn overlay_message_slot() -> &'static Mutex<Option<OverlayMessage>> {
     SLOT.get_or_init(|| Mutex::new(None))
 }
 
+#[cfg(test)]
 pub(super) fn set_overlay_message(text: String) {
-    let mut slot = overlay_message_slot().lock().unwrap();
+    let mut slot = overlay_message_slot()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     if slot
         .as_ref()
         .is_some_and(|message| message.dismiss_with_enter)
@@ -31,7 +35,9 @@ pub(super) fn set_overlay_message(text: String) {
 }
 
 pub(super) fn set_blocking_overlay_message(text: impl Into<String>) {
-    *overlay_message_slot().lock().unwrap() = Some(OverlayMessage {
+    *overlay_message_slot()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner()) = Some(OverlayMessage {
         text: text.into(),
         expires_at: None,
         dismiss_with_enter: true,
@@ -39,7 +45,9 @@ pub(super) fn set_blocking_overlay_message(text: impl Into<String>) {
 }
 
 pub(super) fn clear_overlay_message() {
-    let mut slot = overlay_message_slot().lock().unwrap();
+    let mut slot = overlay_message_slot()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     if slot
         .as_ref()
         .is_some_and(|message| message.dismiss_with_enter)
@@ -50,7 +58,9 @@ pub(super) fn clear_overlay_message() {
 }
 
 pub(crate) fn current_overlay_message() -> Option<(String, bool)> {
-    let mut slot = overlay_message_slot().lock().unwrap();
+    let mut slot = overlay_message_slot()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     match slot.as_ref() {
         Some(message) if message.dismiss_with_enter => {
             Some((message.text.clone(), message.dismiss_with_enter))
@@ -73,13 +83,15 @@ pub(crate) fn current_overlay_message() -> Option<(String, bool)> {
 pub(crate) fn has_blocking_overlay_message() -> bool {
     overlay_message_slot()
         .lock()
-        .unwrap()
+        .unwrap_or_else(|error| error.into_inner())
         .as_ref()
         .is_some_and(|message| message.dismiss_with_enter)
 }
 
 pub(crate) fn dismiss_blocking_overlay_message() {
-    let mut slot = overlay_message_slot().lock().unwrap();
+    let mut slot = overlay_message_slot()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     if slot
         .as_ref()
         .is_some_and(|message| message.dismiss_with_enter)

@@ -1,6 +1,8 @@
 use std::fs;
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
+#[cfg(test)]
+use std::sync::{Mutex, OnceLock};
 
 use anyhow::Result;
 
@@ -22,7 +24,54 @@ pub struct SessionState {
     pub tabs: Vec<TabSessionState>,
 }
 
+#[cfg(test)]
+fn local_data_dir_override_slot() -> &'static Mutex<Option<PathBuf>> {
+    static SLOT: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
+    SLOT.get_or_init(|| Mutex::new(None))
+}
+
+#[cfg(test)]
+pub(crate) fn with_local_data_dir_override<T>(value: Option<PathBuf>, f: impl FnOnce() -> T) -> T {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    struct OverrideGuard {
+        original: Option<PathBuf>,
+    }
+
+    impl Drop for OverrideGuard {
+        fn drop(&mut self) {
+            *local_data_dir_override_slot()
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()) = self.original.take();
+        }
+    }
+
+    let _guard = LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let original = local_data_dir_override_slot()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .clone();
+    *local_data_dir_override_slot()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner()) = value;
+    let _override_guard = OverrideGuard { original };
+
+    f()
+}
+
 pub fn history_dir() -> PathBuf {
+    #[cfg(test)]
+    if let Some(base) = local_data_dir_override_slot()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .clone()
+    {
+        return base.join("voicevox-playground-tui");
+    }
+
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("voicevox-playground-tui")

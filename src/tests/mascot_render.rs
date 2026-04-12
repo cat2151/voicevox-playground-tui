@@ -1,10 +1,8 @@
 use super::test_support::{with_data_root_env, with_local_data_dir_env, with_temp_request_log_dir};
 use super::*;
 use crate::speakers;
-use mascot_render_client::{
-    preview_mouth_flap_timeline_request, ChangeSkinRequest, MotionTimelineKind,
-    PREVIEW_MOUTH_FLAP_FPS,
-};
+use mascot_render_client::{preview_mouth_flap_timeline_request, PREVIEW_MOUTH_FLAP_FPS};
+use mascot_render_protocol::{ChangeCharacterRequest, MotionTimelineKind};
 use std::ffi::OsString;
 use std::fs;
 use std::net::SocketAddr;
@@ -103,119 +101,54 @@ fn init_data_root_env_populates_default_root_when_env_is_unset() {
 }
 
 #[test]
-fn mascot_psd_entries_from_cache_dir_reads_rendered_pngs() {
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let cache_dir = std::env::temp_dir().join(format!("vpt-mascot-cache-{unique}"));
-    let meta_dir = cache_dir.join("demo");
-    let png = cache_dir.join("zundamon-front.png");
-    fs::create_dir_all(&meta_dir).unwrap();
-    fs::write(&png, []).unwrap();
-    fs::write(
-        meta_dir.join("psd-meta.json"),
-        format!(
-            r#"{{
-  "psds": [
-    {{
-      "file_name": "ずんだもん-front.psd",
-      "path": "characters/ずんだもん-front.psd",
-      "rendered_png_path": "{}"
-    }},
-    {{
-      "file_name": "四国めたん.psd",
-      "path": "characters/四国めたん.psd",
-      "rendered_png_path": null
-    }}
-  ]
-}}"#,
-            png.display()
-        ),
-    )
-    .unwrap();
+fn sync_character_change_sends_current_speaker_as_character_name() {
+    with_overlay_state_lock(|| {
+        with_temp_request_log_dir(|dir| {
+            let address = SocketAddr::from(([127, 0, 0, 1], 62152));
+            let mut called_with = None;
 
-    let entries = mascot_psd_list_from_cache_dir(&cache_dir).entries;
+            let result = sync_character_change(address, Some("四国めたん"), |speaker| {
+                called_with = Some(speaker.to_string());
+                Ok(())
+            });
 
-    assert_eq!(entries.len(), 2);
-    let zundamon = entries
-        .iter()
-        .find(|entry| entry.psd_label == "characters/ずんだもん-front.psd")
-        .unwrap();
-    let metan = entries
-        .iter()
-        .find(|entry| entry.psd_label == "characters/四国めたん.psd")
-        .unwrap();
-    assert_eq!(zundamon.png_path, Some(png.clone()));
-    assert_eq!(metan.png_path, None);
+            assert!(result);
+            assert_eq!(called_with.as_deref(), Some("四国めたん"));
 
-    let _ = fs::remove_file(png);
-    let _ = fs::remove_dir_all(cache_dir);
+            let log = fs::read_to_string(dir.join("request.log")).unwrap();
+            assert!(log.contains("POST /change-character HTTP/1.1"));
+            assert!(log.contains(r#""character_name": "四国めたん""#));
+            assert!(log.contains("四国めたん へのcharacter変更request を送信しました。"));
+        });
+    });
 }
 
 #[test]
-fn matching_skin_path_selects_a_matching_png() {
-    let entries = vec![
-        MascotPsdEntry {
-            psd_label: "characters/ずんだもん-front.psd".to_string(),
-            png_path: Some(PathBuf::from("/tmp/first.png")),
-        },
-        MascotPsdEntry {
-            psd_label: "characters/ずんだもん-back.psd".to_string(),
-            png_path: Some(PathBuf::from("/tmp/second.png")),
-        },
-        MascotPsdEntry {
-            psd_label: "characters/四国めたん.psd".to_string(),
-            png_path: Some(PathBuf::from("/tmp/metan.png")),
-        },
-    ];
+fn sync_character_change_failure_sets_blocking_overlay_and_stops_timeline() {
+    with_overlay_state_lock(|| {
+        with_temp_request_log_dir(|dir| {
+            let address = SocketAddr::from(([127, 0, 0, 1], 62152));
 
-    let selected = matching_skin_path("ずんだもん", &entries);
+            let result = sync_character_change(address, Some("四国めたん"), |_| {
+                Err(anyhow::anyhow!("change-character failed"))
+            });
 
-    assert!(matches!(
-        selected.as_deref(),
-        Some(path) if path == Path::new("/tmp/first.png") || path == Path::new("/tmp/second.png")
-    ));
-}
+            assert!(!result);
 
-#[test]
-fn no_matching_skin_message_includes_speaker_and_psd_list() {
-    let message = no_matching_skin_message(
-        "春日部つむぎ",
-        &[
-            MascotPsdEntry {
-                psd_label: "characters/ずんだもん.psd".to_string(),
-                png_path: Some(PathBuf::from("/tmp/zundamon.png")),
-            },
-            MascotPsdEntry {
-                psd_label: "characters/四国めたん.psd".to_string(),
-                png_path: Some(PathBuf::from("/tmp/metan.png")),
-            },
-        ],
-    );
+            let (message, dismiss_with_enter) = current_overlay_message().unwrap();
+            assert!(dismiss_with_enter);
+            assert!(message.contains("POST /change-character HTTP/1.1"));
+            assert!(message.contains(r#""character_name": "四国めたん""#));
+            assert!(message.contains("change-character failed"));
 
-    assert!(message.contains("speaker:春日部つむぎ"));
-    assert!(message.contains("characters/ずんだもん.psd"));
-    assert!(message.contains("characters/四国めたん.psd"));
-}
+            let log = fs::read_to_string(dir.join("request.log")).unwrap();
+            assert!(log.contains("POST /change-character HTTP/1.1"));
+            assert!(log.contains(r#""character_name": "四国めたん""#));
+            assert!(log.contains("change-character failed"));
 
-#[test]
-fn mascot_psd_list_from_missing_cache_dir_reports_reason() {
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let missing = std::env::temp_dir().join(format!("vpt-missing-cache-{unique}"));
-
-    let list = mascot_psd_list_from_cache_dir(&missing);
-
-    assert!(list.entries.is_empty());
-    assert!(list
-        .load_reason
-        .as_deref()
-        .is_some_and(|reason| reason.contains("cache path could not be read")));
-    assert!(no_matching_skin_message_for_list("春日部つむぎ", &list)
-        .contains(&missing.display().to_string()));
+            dismiss_blocking_overlay_message();
+        });
+    });
 }
 
 #[test]
@@ -267,21 +200,21 @@ fn format_mascot_request_without_body_omits_json_sections() {
 #[test]
 fn format_mascot_json_request_pretty_prints_headers_and_body() {
     let address = SocketAddr::from(([127, 0, 0, 1], 62152));
-    let body = ChangeSkinRequest {
-        png_path: PathBuf::from("/tmp/metan.png"),
+    let body = ChangeCharacterRequest {
+        character_name: "四国めたん".to_string(),
     };
 
-    let request = format_mascot_json_request("POST", "/change-skin", address, &body);
+    let request = format_mascot_json_request("POST", "/change-character", address, &body);
 
     let compact_body = serde_json::to_vec(&body).unwrap();
     assert!(request.contains("header:"));
-    assert!(request.contains("  POST /change-skin HTTP/1.1"));
+    assert!(request.contains("  POST /change-character HTTP/1.1"));
     assert!(request.contains("  Host: 127.0.0.1:62152"));
     assert!(request.contains(&format!("  Content-Length: {}", compact_body.len())));
     assert!(request.contains("  Content-Type: application/json"));
     assert!(request.contains("body:"));
     assert!(request.contains("  {"));
-    assert!(request.contains(r#"    "png_path": "/tmp/metan.png""#));
+    assert!(request.contains(r#"    "character_name": "四国めたん""#));
     assert!(request.contains("  }"));
 }
 

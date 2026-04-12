@@ -1128,11 +1128,20 @@ dependencies = [
 [[package]]
 name = "mascot-render-client"
 version = "0.1.0"
-source = "git+https://github.com/cat2151/mascot-render-server#e7ab95ea41a58c1514a0fe48b144794dd420c238"
+source = "git+https://github.com/cat2151/mascot-render-server?branch=main#8b50aaec9e099cb4a4ce72eeb0c5c1b8f5efa64b"
+dependencies = [
+ "anyhow",
+ "mascot-render-protocol",
+ "serde_json",
+]
+
+[[package]]
+name = "mascot-render-protocol"
+version = "0.1.0"
+source = "git+https://github.com/cat2151/mascot-render-server?branch=main#8b50aaec9e099cb4a4ce72eeb0c5c1b8f5efa64b"
 dependencies = [
  "anyhow",
  "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -2426,6 +2435,7 @@ dependencies = [
  "crossterm",
  "dirs",
  "mascot-render-client",
+ "mascot-render-protocol",
  "ratatui",
  "reqwest",
  "rodio",
