@@ -16,6 +16,11 @@ fn overlay_message_slot() -> &'static Mutex<Option<OverlayMessage>> {
     SLOT.get_or_init(|| Mutex::new(None))
 }
 
+fn startup_overlay_message_slot() -> &'static Mutex<Option<String>> {
+    static SLOT: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+    SLOT.get_or_init(|| Mutex::new(None))
+}
+
 #[cfg(test)]
 pub(super) fn set_overlay_message(text: String) {
     let mut slot = overlay_message_slot()
@@ -34,7 +39,7 @@ pub(super) fn set_overlay_message(text: String) {
     });
 }
 
-pub(super) fn set_blocking_overlay_message(text: impl Into<String>) {
+pub(crate) fn set_blocking_overlay_message(text: impl Into<String>) {
     *overlay_message_slot()
         .lock()
         .unwrap_or_else(|error| error.into_inner()) = Some(OverlayMessage {
@@ -55,6 +60,18 @@ pub(super) fn clear_overlay_message() {
         return;
     }
     *slot = None;
+}
+
+pub(crate) fn set_startup_overlay_message(text: impl Into<String>) {
+    *startup_overlay_message_slot()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner()) = Some(text.into());
+}
+
+pub(crate) fn clear_startup_overlay_message() {
+    *startup_overlay_message_slot()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner()) = None;
 }
 
 pub(crate) fn current_overlay_message() -> Option<(String, bool)> {
@@ -78,6 +95,13 @@ pub(crate) fn current_overlay_message() -> Option<(String, bool)> {
         }
         None => None,
     }
+}
+
+pub(crate) fn current_startup_overlay_message() -> Option<String> {
+    startup_overlay_message_slot()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .clone()
 }
 
 pub(crate) fn has_blocking_overlay_message() -> bool {

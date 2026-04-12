@@ -265,6 +265,32 @@ fn blocking_overlay_message_stays_visible_until_dismissed() {
 }
 
 #[test]
+fn startup_overlay_message_stays_visible_until_cleared() {
+    crate::mascot_render::with_overlay_state_lock(|| {
+        set_startup_overlay_message("checking mascot-render-server".to_string());
+
+        assert_eq!(
+            current_startup_overlay_message(),
+            Some("checking mascot-render-server".to_string())
+        );
+
+        clear_startup_overlay_message();
+
+        assert_eq!(current_startup_overlay_message(), None);
+    });
+}
+
+#[test]
+fn startup_in_progress_flag_round_trips() {
+    crate::mascot_render::with_overlay_state_lock(|| {
+        assert!(!is_startup_in_progress());
+
+        set_startup_in_progress(true);
+        assert!(is_startup_in_progress());
+    });
+}
+
+#[test]
 fn non_blocking_overlay_does_not_replace_blocking_overlay() {
     crate::mascot_render::with_overlay_state_lock(|| {
         set_blocking_overlay_message("request failed".to_string());

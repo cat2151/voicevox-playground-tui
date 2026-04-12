@@ -2,8 +2,8 @@ use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, Ke
 use tokio::sync::mpsc;
 
 use super::{
-    focus_change, handle_blocking_overlay, handle_startup_load, should_exit_during_startup,
-    should_ignore_key_event,
+    focus_change, handle_blocking_overlay, handle_runtime_startup, handle_startup_load,
+    should_exit_during_startup, should_ignore_key_event,
 };
 
 #[test]
@@ -93,5 +93,81 @@ fn handle_startup_load_returns_error_when_loader_disconnects() {
             "startup error: history loader disconnected"
         );
         assert!(startup_rx.is_none());
+    });
+}
+
+#[test]
+fn handle_runtime_startup_updates_status_on_progress_event() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    runtime.block_on(async {
+        let mut app = crate::app::App::new(vec![String::new()]);
+        let (tx, rx) = mpsc::unbounded_channel();
+        tx.send(crate::startup::RuntimeStartupEvent::Status(
+            "[startup] checking VOICEVOX...".to_string(),
+        ))
+        .unwrap();
+        let mut runtime_startup_rx = Some(rx);
+
+        let finished = handle_runtime_startup(&mut app, &mut runtime_startup_rx).unwrap();
+
+        assert!(!finished);
+        assert_eq!(app.status_msg, "[startup] checking VOICEVOX...");
+        assert!(runtime_startup_rx.is_some());
+    });
+}
+
+#[test]
+fn handle_runtime_startup_returns_true_when_loader_succeeds() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    runtime.block_on(async {
+        let mut app = crate::app::App::new(vec![String::new()]);
+        let (tx, rx) = mpsc::unbounded_channel();
+        tx.send(crate::startup::RuntimeStartupEvent::Ready(Ok(())))
+            .unwrap();
+        let mut runtime_startup_rx = Some(rx);
+
+        let finished = handle_runtime_startup(&mut app, &mut runtime_startup_rx).unwrap();
+
+        assert!(finished);
+        assert!(runtime_startup_rx.is_none());
+    });
+}
+
+#[test]
+fn handle_runtime_startup_returns_error_when_loader_fails() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    runtime.block_on(async {
+        let mut app = crate::app::App::new(vec![String::new()]);
+        let (tx, rx) = mpsc::unbounded_channel();
+        tx.send(crate::startup::RuntimeStartupEvent::Ready(Err(
+            anyhow::anyhow!("boom"),
+        )))
+        .unwrap();
+        let mut runtime_startup_rx = Some(rx);
+
+        let err = handle_runtime_startup(&mut app, &mut runtime_startup_rx).unwrap_err();
+
+        assert_eq!(err.to_string(), "startup error");
+        assert_eq!(err.source().unwrap().to_string(), "boom");
+        assert!(runtime_startup_rx.is_none());
+    });
+}
+
+#[test]
+fn handle_runtime_startup_returns_error_when_loader_disconnects() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    runtime.block_on(async {
+        let mut app = crate::app::App::new(vec![String::new()]);
+        let (tx, rx) = mpsc::unbounded_channel();
+        drop(tx);
+        let mut runtime_startup_rx = Some(rx);
+
+        let err = handle_runtime_startup(&mut app, &mut runtime_startup_rx).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "startup error: runtime loader disconnected"
+        );
+        assert!(runtime_startup_rx.is_none());
     });
 }

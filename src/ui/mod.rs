@@ -71,6 +71,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             intonation::render_intonation_editor(f, app, chunks[0]);
             intonation::render_intonation_status(f, app, chunks[1]);
         }
+        overlay::render_startup_overlay(f);
         overlay::render_mascot_overlay(f);
         return;
     }
@@ -86,5 +87,6 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         help::render_help_overlay(f, app);
     }
 
+    overlay::render_startup_overlay(f);
     overlay::render_mascot_overlay(f);
 }

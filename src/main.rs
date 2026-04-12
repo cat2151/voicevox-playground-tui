@@ -58,35 +58,39 @@ async fn main() -> Result<()> {
     }
 
     mascot_render::init_data_root_env();
-    if let Err(error) = engine_launcher::ensure_mascot_render_running().await {
-        eprintln!("mascot-render-server の自動起動に失敗しました: {error:#}");
-    }
-
-    // エンジンが起動していなければ自動起動する
-    engine_launcher::ensure_engine_running(BASE_URLS).await?;
-
-    // 起動時に speaker テーブルをAPIから取得する（ハードコーディングなし）
-    speakers::load(BASE_URLS).await?;
-
     if mode == StartupMode::Clipboard {
+        if let Err(error) = engine_launcher::ensure_mascot_render_running().await {
+            eprintln!("mascot-render-server の自動起動に失敗しました: {error:#}");
+        }
+        // エンジンが起動していなければ自動起動する
+        engine_launcher::ensure_engine_running(BASE_URLS).await?;
+
+        // 起動時に speaker テーブルをAPIから取得する（ハードコーディングなし）
+        speakers::load(BASE_URLS).await?;
         // --clipboard: クリップボードを読み上げて終了（history.txtには追加しない）
         return clipboard::run().await;
     }
 
-    let startup_rx = if mode == StartupMode::Normal {
+    let history_rx = if mode == StartupMode::Normal {
         Some(startup::spawn_history_loader())
     } else {
         None
     };
+    let runtime_startup_rx = if mode == StartupMode::Normal {
+        Some(startup::spawn_runtime_loader(BASE_URLS))
+    } else {
+        None
+    };
     let mut app = App::new(vec![String::new()]);
-    if startup_rx.is_some() {
+    if history_rx.is_some() || runtime_startup_rx.is_some() {
         app.status_msg = String::from("[startup] loading history...");
     }
+    engine_launcher::spawn_mascot_render_startup();
 
     // バックグラウンドで自動アップデートチェックを開始する
     updater::spawn_update_check(std::sync::Arc::clone(&app.update_available));
 
-    let exit_disposition = tui::run(&mut app, startup_rx).await?;
+    let exit_disposition = tui::run(&mut app, history_rx, runtime_startup_rx).await?;
 
     if exit_disposition == tui::ExitDisposition::PersistState {
         let final_lines = app.all_tab_lines();

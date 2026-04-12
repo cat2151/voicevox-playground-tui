@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 #[cfg(test)]
 use std::sync::Mutex;
@@ -30,11 +31,11 @@ use self::logging::{
 };
 use self::overlay::clear_overlay_message;
 #[cfg(test)]
-use self::overlay::set_blocking_overlay_message;
-#[cfg(test)]
 use self::overlay::set_overlay_message;
 pub(crate) use self::overlay::{
-    current_overlay_message, dismiss_blocking_overlay_message, has_blocking_overlay_message,
+    clear_startup_overlay_message, current_overlay_message, current_startup_overlay_message,
+    dismiss_blocking_overlay_message, has_blocking_overlay_message, set_blocking_overlay_message,
+    set_startup_overlay_message,
 };
 
 const MIN_DURATION_MS: u64 = 100;
@@ -45,6 +46,9 @@ const OVERLAY_DURATION: std::time::Duration = std::time::Duration::from_secs(5);
 
 pub fn sync_playback(line: &str, wav: &[u8]) {
     if line.trim().is_empty() || wav.is_empty() {
+        return;
+    }
+    if is_startup_in_progress() {
         return;
     }
 
@@ -130,6 +134,19 @@ fn mascot_worker_tx() -> &'static Sender<MascotPlaybackSync> {
     })
 }
 
+fn startup_in_progress_flag() -> &'static AtomicBool {
+    static FLAG: OnceLock<AtomicBool> = OnceLock::new();
+    FLAG.get_or_init(|| AtomicBool::new(false))
+}
+
+fn is_startup_in_progress() -> bool {
+    startup_in_progress_flag().load(Ordering::Relaxed)
+}
+
+pub(crate) fn set_startup_in_progress(in_progress: bool) {
+    startup_in_progress_flag().store(in_progress, Ordering::Relaxed);
+}
+
 fn sync_character_change<F>(address: SocketAddr, speaker: Option<&str>, change_character: F) -> bool
 where
     F: FnOnce(&str) -> anyhow::Result<()>,
@@ -208,11 +225,15 @@ pub(crate) fn with_overlay_state_lock<T>(f: impl FnOnce() -> T) -> T {
         .get_or_init(|| Mutex::new(()))
         .lock()
         .unwrap_or_else(|error| error.into_inner());
+    set_startup_in_progress(false);
     dismiss_blocking_overlay_message();
     clear_overlay_message();
+    clear_startup_overlay_message();
     let result = f();
+    set_startup_in_progress(false);
     dismiss_blocking_overlay_message();
     clear_overlay_message();
+    clear_startup_overlay_message();
     result
 }
 

@@ -170,6 +170,64 @@ async fn wait_for_mascot_render_server() -> Result<()> {
     .await?
 }
 
+fn mascot_render_check_status_message() -> String {
+    format!(
+        "[startup] checking mascot-render-server on port {}...",
+        mascot_render_server_address().port()
+    )
+}
+
+fn mascot_render_start_status_message() -> String {
+    String::from("[startup] starting mascot-render-server...")
+}
+
+fn mascot_render_wait_status_message() -> String {
+    format!(
+        "[startup] waiting for mascot-render-server on port {}...",
+        mascot_render_server_address().port()
+    )
+}
+
+async fn ensure_mascot_render_running_impl<F>(mut progress: F, log_to_stderr: bool) -> Result<()>
+where
+    F: FnMut(String),
+{
+    progress(mascot_render_check_status_message());
+    if is_mascot_render_running().await {
+        return Ok(());
+    }
+
+    let config = crate::config::load_or_create()?;
+    let Some(exe) = find_mascot_render_executable(&config) else {
+        if log_to_stderr {
+            eprintln!(
+                "mascot-render-server は起動しておらず、実行ファイルも見つからなかったため自動起動をスキップします。\n\
+config.toml: {}\n\
+設定キー: mascot_render_server_path",
+                crate::config::config_path().display()
+            );
+        }
+        return Ok(());
+    };
+
+    if log_to_stderr {
+        eprintln!("mascot-render-server を起動します: {}", exe.display());
+    }
+    progress(mascot_render_start_status_message());
+    launch_mascot_render_server(&exe)?;
+
+    if log_to_stderr {
+        eprintln!("mascot-render-server が起動するまで待機しています...");
+    }
+    progress(mascot_render_wait_status_message());
+    wait_for_mascot_render_server().await?;
+    if log_to_stderr {
+        eprintln!("mascot-render-server の起動が完了しました。");
+    }
+
+    Ok(())
+}
+
 /// エンジンが起動するまでポーリングして待機する。
 async fn wait_for_engine(base_url: &str) -> Result<()> {
     let client = reqwest::Client::builder()
@@ -247,27 +305,24 @@ config.toml: {}\n\
 /// mascot-render-server が起動していなければ自動起動し、起動完了まで待機する。
 /// 実行ファイルが見つからない場合は自動起動をスキップする。
 pub async fn ensure_mascot_render_running() -> Result<()> {
-    if is_mascot_render_running().await {
-        return Ok(());
-    }
+    ensure_mascot_render_running_impl(|_| {}, true).await
+}
 
-    let config = crate::config::load_or_create()?;
-    let Some(exe) = find_mascot_render_executable(&config) else {
-        eprintln!(
-            "mascot-render-server は起動しておらず、実行ファイルも見つからなかったため自動起動をスキップします。\n\
-config.toml: {}\n\
-設定キー: mascot_render_server_path",
-            crate::config::config_path().display()
-        );
-        return Ok(());
-    };
-
-    eprintln!("mascot-render-server を起動します: {}", exe.display());
-    launch_mascot_render_server(&exe)?;
-
-    eprintln!("mascot-render-server が起動するまで待機しています...");
-    wait_for_mascot_render_server().await?;
-    eprintln!("mascot-render-server の起動が完了しました。");
-
-    Ok(())
+pub fn spawn_mascot_render_startup() {
+    crate::mascot_render::set_startup_in_progress(true);
+    crate::mascot_render::set_startup_overlay_message(mascot_render_check_status_message());
+    tokio::spawn(async move {
+        let result = ensure_mascot_render_running_impl(
+            crate::mascot_render::set_startup_overlay_message,
+            false,
+        )
+        .await;
+        crate::mascot_render::set_startup_in_progress(false);
+        crate::mascot_render::clear_startup_overlay_message();
+        if let Err(error) = result {
+            crate::mascot_render::set_blocking_overlay_message(format!(
+                "mascot-render-server の自動起動に失敗しました:\n{error:#}"
+            ));
+        }
+    });
 }

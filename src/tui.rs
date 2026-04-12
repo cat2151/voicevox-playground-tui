@@ -20,7 +20,7 @@ use tokio::sync::mpsc;
 
 use crate::app::{App, Mode, UpdateAction};
 use crate::mascot_render;
-use crate::startup::LoadedHistoryResult;
+use crate::startup::{LoadedHistoryResult, RuntimeStartupEvent};
 use crate::ui;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,7 +31,8 @@ pub enum ExitDisposition {
 
 pub async fn run(
     app: &mut App,
-    mut startup_rx: Option<mpsc::UnboundedReceiver<LoadedHistoryResult>>,
+    mut history_rx: Option<mpsc::UnboundedReceiver<LoadedHistoryResult>>,
+    mut runtime_startup_rx: Option<mpsc::UnboundedReceiver<RuntimeStartupEvent>>,
 ) -> Result<ExitDisposition> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -60,10 +61,13 @@ pub async fn run(
     let _guard = TerminalGuard;
 
     const AUTO_SAVE_INTERVAL: Duration = Duration::from_secs(60);
-    let mut startup_pending = startup_rx.is_some();
-    let mut needs_init = !startup_pending;
+    let mut history_pending = history_rx.is_some();
+    let mut runtime_startup_pending = runtime_startup_rx.is_some();
+    let mut needs_init = !history_pending && !runtime_startup_pending;
 
     loop {
+        let startup_pending = history_pending || runtime_startup_pending;
+
         // イントネーション編集モードのデバウンス再生チェック（100msポーリング周期）
         if app.mode == Mode::Intonation {
             app.intonation_play_if_debounced().await;
@@ -81,12 +85,18 @@ pub async fn run(
 
         terminal.draw(|f| ui::draw(f, app))?;
 
-        if startup_pending && handle_startup_load(app, &mut startup_rx)? {
-            startup_pending = false;
-            needs_init = true;
+        if history_pending && handle_startup_load(app, &mut history_rx)? {
+            history_pending = false;
+            needs_init = !runtime_startup_pending;
         }
 
-        if !startup_pending && needs_init {
+        if runtime_startup_pending && handle_runtime_startup(app, &mut runtime_startup_rx)? {
+            runtime_startup_pending = false;
+            needs_init = !history_pending;
+        }
+
+        if !history_pending && !runtime_startup_pending && needs_init {
+            app.status_msg = String::from("ready");
             app.init().await;
             needs_init = false;
         }
@@ -135,9 +145,9 @@ pub async fn run(
 
 fn handle_startup_load(
     app: &mut App,
-    startup_rx: &mut Option<mpsc::UnboundedReceiver<LoadedHistoryResult>>,
+    history_rx: &mut Option<mpsc::UnboundedReceiver<LoadedHistoryResult>>,
 ) -> Result<bool> {
-    let Some(rx) = startup_rx.as_mut() else {
+    let Some(rx) = history_rx.as_mut() else {
         return Ok(true);
     };
 
@@ -148,19 +158,49 @@ fn handle_startup_load(
                 loaded.all_intonations,
                 &loaded.session_state,
             );
-            app.status_msg = String::from("ready");
-            *startup_rx = None;
+            *history_rx = None;
             Ok(true)
         }
         Ok(Err(err)) => {
-            *startup_rx = None;
+            *history_rx = None;
             Err(err.context("startup error"))
         }
         Err(mpsc::error::TryRecvError::Empty) => Ok(false),
         Err(mpsc::error::TryRecvError::Disconnected) => {
-            *startup_rx = None;
+            *history_rx = None;
             Err(anyhow::anyhow!(
                 "startup error: history loader disconnected"
+            ))
+        }
+    }
+}
+
+fn handle_runtime_startup(
+    app: &mut App,
+    runtime_startup_rx: &mut Option<mpsc::UnboundedReceiver<RuntimeStartupEvent>>,
+) -> Result<bool> {
+    let Some(rx) = runtime_startup_rx.as_mut() else {
+        return Ok(true);
+    };
+
+    match rx.try_recv() {
+        Ok(RuntimeStartupEvent::Status(status)) => {
+            app.status_msg = status;
+            Ok(false)
+        }
+        Ok(RuntimeStartupEvent::Ready(Ok(()))) => {
+            *runtime_startup_rx = None;
+            Ok(true)
+        }
+        Ok(RuntimeStartupEvent::Ready(Err(err))) => {
+            *runtime_startup_rx = None;
+            Err(err.context("startup error"))
+        }
+        Err(mpsc::error::TryRecvError::Empty) => Ok(false),
+        Err(mpsc::error::TryRecvError::Disconnected) => {
+            *runtime_startup_rx = None;
+            Err(anyhow::anyhow!(
+                "startup error: runtime loader disconnected"
             ))
         }
     }
