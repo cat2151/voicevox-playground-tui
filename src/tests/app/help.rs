@@ -149,6 +149,14 @@ fn append_quote_then_plus_then_p_returns_paste_below_clipboard() {
     assert_eq!(action, Some(HelpAction::PasteBelowClipboard));
 }
 
+#[test]
+fn append_s_returns_speaker_style_action() {
+    let mut buf = String::new();
+    let action = append_key(&mut buf, "s");
+    assert_eq!(action, Some(HelpAction::SpeakerStyleMode));
+    assert!(buf.is_empty(), "完全一致後バッファがクリアされること");
+}
+
 // ── エントリ全体の構造チェック ─────────────────────────────────────────────
 
 #[test]
@@ -230,6 +238,15 @@ fn tabnew_canonical_key_is_tabnew() {
         entry.canonical_key, ":tabnew",
         ":tabnewのcanonical_keyは\":tabnew\"であること"
     );
+}
+
+#[test]
+fn speaker_style_entry_uses_canonical_s() {
+    let entry = HELP_ENTRIES
+        .iter()
+        .find(|e| e.action == HelpAction::SpeakerStyleMode)
+        .expect("SpeakerStyleModeエントリがHELP_ENTRIESに存在すること");
+    assert_eq!(entry.canonical_key, "s");
 }
 
 #[test]

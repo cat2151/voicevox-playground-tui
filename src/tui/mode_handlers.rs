@@ -15,6 +15,7 @@ pub(super) async fn handle_mode_event(app: &mut App, ev: Event) -> LoopControl {
     match app.mode {
         Mode::Normal => handle_normal_mode(app, ev).await,
         Mode::Insert => handle_insert_mode(app, ev).await,
+        Mode::SpeakerStyle => handle_speaker_style_mode(app, ev).await,
         Mode::Intonation => handle_intonation_mode(app, ev).await,
         Mode::Command => handle_command_mode(app, ev).await,
         Mode::Help => handle_help_mode(app, ev).await,
@@ -69,6 +70,7 @@ async fn handle_normal_mode(app: &mut App, ev: Event) -> LoopControl {
             }
             KeyCode::Char('t') if app.pending_g => app.tab_next(),
             KeyCode::Char('T') if app.pending_g => app.tab_prev(),
+            KeyCode::Char('s') => app.enter_speaker_style_mode(),
             KeyCode::Char('v') => app.enter_intonation_mode().await,
             KeyCode::Char('h') | KeyCode::Left => app.enter_help_mode(),
             KeyCode::Char('l') | KeyCode::Right => app.tab_next(),
@@ -118,6 +120,35 @@ async fn handle_insert_mode(app: &mut App, ev: Event) -> LoopControl {
 
     if app.textarea.input(input) {
         app.on_edit_buf_changed().await;
+    }
+
+    LoopControl::Continue
+}
+
+async fn handle_speaker_style_mode(app: &mut App, ev: Event) -> LoopControl {
+    if let Event::Key(key) = ev {
+        match key.code {
+            KeyCode::Esc => app.cancel_speaker_style_mode(),
+            KeyCode::Enter => app.confirm_speaker_style_mode(),
+            KeyCode::Char('h') | KeyCode::Left => app.speaker_style_focus_speaker(),
+            KeyCode::Char('l') | KeyCode::Right => app.speaker_style_focus_style(),
+            KeyCode::Char(' ') | KeyCode::Char('p') => {
+                if let Some(preview_line) = app.speaker_style_selected_preview_line() {
+                    app.preview_speaker_style_selection(preview_line).await;
+                }
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                if let Some(preview_line) = app.speaker_style_adjust_selection(1) {
+                    app.preview_speaker_style_selection(preview_line).await;
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                if let Some(preview_line) = app.speaker_style_adjust_selection(-1) {
+                    app.preview_speaker_style_selection(preview_line).await;
+                }
+            }
+            _ => {}
+        }
     }
 
     LoopControl::Continue
@@ -272,6 +303,7 @@ async fn handle_help_mode(app: &mut App, ev: Event) -> LoopControl {
                         HelpAction::PasteAboveClipboard => app.paste_above_from_clipboard().await,
                         HelpAction::Fold => app.fold(),
                         HelpAction::Unfold => app.unfold(),
+                        HelpAction::SpeakerStyleMode => app.enter_speaker_style_mode(),
                         HelpAction::IntonationMode => app.enter_intonation_mode().await,
                         HelpAction::TabNext => app.tab_next(),
                         HelpAction::TabPrev => app.tab_prev(),

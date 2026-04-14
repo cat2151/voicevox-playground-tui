@@ -3,7 +3,7 @@ use tokio::sync::mpsc;
 
 use super::{
     focus_change, handle_blocking_overlay, handle_runtime_startup, handle_startup_load,
-    should_exit_during_startup, should_ignore_key_event,
+    mode_handlers::handle_mode_event, should_exit_during_startup, should_ignore_key_event,
 };
 
 #[test]
@@ -170,4 +170,52 @@ fn handle_runtime_startup_returns_error_when_loader_disconnects() {
         );
         assert!(runtime_startup_rx.is_none());
     });
+}
+
+fn make_speaker_style_app() -> (crate::app::App, mpsc::Receiver<crate::fetch::FetchRequest>) {
+    crate::speakers::init_test_table();
+    let mut app = crate::app::App::new(vec!["[四国めたん]こんにちは".to_string()]);
+    app.cursor = 0;
+    let (tx, rx) = mpsc::channel(8);
+    app.fetch_tx = tx;
+    app.enter_speaker_style_mode();
+    (app, rx)
+}
+
+#[tokio::test]
+async fn handle_mode_event_space_previews_in_speaker_style_mode() {
+    let (mut app, mut rx) = make_speaker_style_app();
+
+    handle_mode_event(
+        &mut app,
+        Event::Key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)),
+    )
+    .await;
+
+    let req = rx
+        .recv()
+        .await
+        .expect("Spaceでspeaker/styleプレビューのfetchが送られること");
+    assert_eq!(req.text, "[四国めたん]こんにちは");
+    assert!(req.play_after);
+    assert_eq!(app.mode, crate::app::Mode::SpeakerStyle);
+}
+
+#[tokio::test]
+async fn handle_mode_event_p_previews_in_speaker_style_mode() {
+    let (mut app, mut rx) = make_speaker_style_app();
+
+    handle_mode_event(
+        &mut app,
+        Event::Key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE)),
+    )
+    .await;
+
+    let req = rx
+        .recv()
+        .await
+        .expect("pでspeaker/styleプレビューのfetchが送られること");
+    assert_eq!(req.text, "[四国めたん]こんにちは");
+    assert!(req.play_after);
+    assert_eq!(app.mode, crate::app::Mode::SpeakerStyle);
 }

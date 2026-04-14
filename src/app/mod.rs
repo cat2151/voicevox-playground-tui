@@ -5,6 +5,7 @@ mod insert_mode;
 mod intonation_mode;
 mod normal_mode;
 mod playback;
+mod speaker_style_mode;
 mod tab_ops;
 mod utils;
 
@@ -21,11 +22,14 @@ use tui_textarea::TextArea;
 
 use crate::fetch::{FetchRequest, IsFetching, WavCache};
 use crate::player::{self, PlayRequest};
+use crate::tag;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mode {
     Normal,
     Insert,
+    /// 現在行のspeaker/styleを選択するオーバーレイモード
+    SpeakerStyle,
     /// キーボードによる簡易イントネーション編集モード
     Intonation,
     /// コロンコマンド入力モード（例: :tabnew）
@@ -51,6 +55,28 @@ pub type LineIntonations = Vec<Option<IntonationLineData>>;
 pub type AllTabLines = Vec<Vec<String>>;
 pub type AllTabIntonations = Vec<LineIntonations>;
 pub type TabSlot = (Vec<String>, LineIntonations, usize, bool);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpeakerStyleFocus {
+    Speaker,
+    Style,
+}
+
+#[derive(Debug, Clone)]
+pub struct SpeakerStyleState {
+    /// オーバーレイ起動時点の現在行。キャンセル時はこの文字列を維持する。
+    pub original_line: String,
+    /// 起動前のステータスメッセージ。キャンセル時や変更なし確定時に復元する。
+    pub previous_status_msg: String,
+    /// 起動時点のspeaker/style。変更なし確定判定に使う。
+    pub original_ctx: tag::VoiceCtx,
+    /// 選択中speakerのインデックス（speakers::get().char_namesに対応）
+    pub speaker_index: usize,
+    /// 選択中styleのインデックス（選択中speakerのstylesに対応）
+    pub style_index: usize,
+    /// 現在フォーカスしているペイン
+    pub focus: SpeakerStyleFocus,
+}
 
 pub struct App {
     pub lines: Vec<String>,
@@ -95,6 +121,8 @@ pub struct App {
     pub command_buf: String,
     /// ヘルプモードで入力中のキーバッファ（前方一致ハイライト・完全一致実行に使う）
     pub help_key_buf: String,
+    /// speaker/style選択オーバーレイの状態（未表示時はNone）
+    pub speaker_style_state: Option<SpeakerStyleState>,
     // ── イントネーション編集 ──────────────────────────────────────────────────────
     /// 行インデックスごとのイントネーション編集データ（lines と同じ長さで同期される）
     pub line_intonations: LineIntonations,
@@ -181,6 +209,7 @@ impl App {
             active_tab: 0,
             command_buf: String::new(),
             help_key_buf: String::new(),
+            speaker_style_state: None,
             intonation_speaker_id: 0,
             intonation_mora_texts: Vec::new(),
             intonation_pitches: Vec::new(),

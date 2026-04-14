@@ -47,3 +47,31 @@ fn split_mid_line_multiple_changes() {
         vec!["ずんだもん", "[四国めたん]めたん", "[あまあま]あまあま",]
     );
 }
+
+#[test]
+fn line_head_ctx_uses_first_spoken_segment() {
+    setup();
+    let ctx = line_head_ctx("[四国めたん]めたん[あまあま]あまあま");
+    assert_eq!(ctx.char_name, "四国めたん");
+    assert_eq!(ctx.style_name, "ノーマル");
+    assert_eq!(ctx.speaker_id, 2);
+}
+
+#[test]
+fn strip_known_tags_removes_only_recognized_voice_tags() {
+    setup();
+    assert_eq!(
+        strip_known_tags(" [四国めたん][ノーマル]おはよう[meta]"),
+        " おはよう[meta]"
+    );
+}
+
+#[test]
+fn rewrite_line_with_ctx_preserves_leading_space_and_unknown_tags() {
+    setup();
+    let ctx = VoiceCtx::default();
+    assert_eq!(
+        rewrite_line_with_ctx(" [四国めたん]おはよう[meta]", &ctx),
+        " おはよう[meta]"
+    );
+}

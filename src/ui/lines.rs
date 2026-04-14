@@ -15,7 +15,7 @@ pub(super) fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
         BG
     } else {
         match app.mode {
-            Mode::Normal | Mode::Command | Mode::Help => CURSOR_NORMAL,
+            Mode::Normal | Mode::Command | Mode::Help | Mode::SpeakerStyle => CURSOR_NORMAL,
             Mode::Insert => CURSOR_INSERT,
             _ => CURSOR_NORMAL,
         }
@@ -24,7 +24,7 @@ pub(super) fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
         DIM
     } else {
         match app.mode {
-            Mode::Normal | Mode::Command | Mode::Help => FG,
+            Mode::Normal | Mode::Command | Mode::Help | Mode::SpeakerStyle => FG,
             Mode::Insert => BG,
             _ => FG,
         }
@@ -133,6 +133,13 @@ pub(super) fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
                 Span::styled(" [INSERT] ", Style::default().fg(DIM))
             }
         }
+        Mode::SpeakerStyle => {
+            if focused {
+                Span::styled(" [SPEAKER/STYLE] ", Style::default().fg(YELLOW).bold())
+            } else {
+                Span::styled(" [SPEAKER/STYLE] ", Style::default().fg(DIM))
+            }
+        }
         _ => {
             if focused {
                 Span::styled(" [NORMAL] ", Style::default().fg(GREEN).bold())
@@ -167,6 +174,7 @@ pub(super) fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
     } else {
         match app.mode {
             Mode::Normal | Mode::Command | Mode::Help => DIM,
+            Mode::SpeakerStyle => YELLOW,
             Mode::Insert => CYAN,
             _ => DIM,
         }
@@ -265,9 +273,10 @@ pub(super) fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     let hint = match app.mode {
-        Mode::Normal => "h:help  j/k/Enter:move  i:edit  o/O:newline  dd:delete  p/P:paste  \"+p/\"+P:clip-paste  zm/zr:fold  Space:play  v:intonation  l:tab-next  q:quit",
+        Mode::Normal => "h:help  j/k/Enter:move  i:edit  o/O:newline  dd:delete  p/P:paste  \"+p/\"+P:clip-paste  zm/zr:fold  Space:play  s:speaker/style  v:intonation  l:tab-next  q:quit",
         Mode::Insert => "^A:home  ^E:end  ^K:kill  ^W:del-word  Esc/Enter:confirm",
         Mode::Command => "",
+        Mode::SpeakerStyle => "h/l:focus  j/k:select  Space/p:preview  Enter:confirm  Esc:cancel",
         Mode::Intonation => "",
         Mode::Help => "",
     };

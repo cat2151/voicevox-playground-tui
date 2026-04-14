@@ -8,6 +8,7 @@ mod help;
 mod intonation;
 mod lines;
 mod overlay;
+mod speaker_style;
 
 pub(crate) use intonation::PITCH_PER_ROW;
 
@@ -85,6 +86,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     // ヘルプモードはノーマルレイアウトの上にオーバーレイ表示する
     if app.mode == Mode::Help {
         help::render_help_overlay(f, app);
+    } else if app.mode == Mode::SpeakerStyle {
+        speaker_style::render_speaker_style_overlay(f, app);
     }
 
     overlay::render_startup_overlay(f);

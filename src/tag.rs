@@ -9,7 +9,7 @@ use crate::speakers;
 
 // ── VoiceCtx ─────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VoiceCtx {
     pub char_name: String,
     pub style_name: String,
@@ -164,6 +164,16 @@ pub fn tail_ctx(line: &str) -> VoiceCtx {
     ctx
 }
 
+/// 行先頭で最初に発話されるspeaker/styleを返す。
+/// 発話テキストがない場合は行末コンテキストを返す。
+pub fn line_head_ctx(line: &str) -> VoiceCtx {
+    parse_line(line)
+        .into_iter()
+        .next()
+        .map(|(_, ctx)| ctx)
+        .unwrap_or_else(|| tail_ctx(line))
+}
+
 /// VoiceCtxを行頭タグ文字列に変換する（デフォルトは出力しない）
 pub fn ctx_to_prefix(ctx: &VoiceCtx) -> String {
     let t = speakers::get();
@@ -179,6 +189,56 @@ pub fn ctx_to_prefix(ctx: &VoiceCtx) -> String {
         s.push(']');
     }
     s
+}
+
+/// VoiceCtxを明示的な `[speaker][style]` 文字列に変換する。
+pub fn ctx_to_explicit_prefix(ctx: &VoiceCtx) -> String {
+    format!("[{}][{}]", ctx.char_name, ctx.style_name)
+}
+
+/// 認識済みのspeaker/styleタグだけを取り除き、未知のタグはそのまま残す。
+pub fn strip_known_tags(line: &str) -> String {
+    let mut out = String::new();
+    let mut chars = line.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c != '[' {
+            out.push(c);
+            continue;
+        }
+
+        let mut inner = String::new();
+        let mut closed = false;
+        for ch in chars.by_ref() {
+            if ch == ']' {
+                closed = true;
+                break;
+            }
+            inner.push(ch);
+        }
+
+        if !closed {
+            out.push('[');
+            out.push_str(&inner);
+            break;
+        }
+
+        if matches!(classify_tag(inner.trim()), TagKind::Unknown(_)) {
+            out.push('[');
+            out.push_str(&inner);
+            out.push(']');
+        }
+    }
+
+    out
+}
+
+/// 行全体を単一speaker/styleとして再構成する。折りたたみ用の先頭spaceは保持する。
+pub fn rewrite_line_with_ctx(line: &str, ctx: &VoiceCtx) -> String {
+    let indent_len = line.chars().take_while(|&c| c == ' ').count();
+    let (indent, rest) = line.split_at(indent_len);
+    let body = strip_known_tags(rest);
+    format!("{indent}{}{}", ctx_to_prefix(ctx), body)
 }
 
 /// 行の途中でspeaker/styleが変わる場合、変わる箇所で行を分割して返す。
