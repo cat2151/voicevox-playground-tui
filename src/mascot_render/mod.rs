@@ -2,15 +2,13 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
-#[cfg(test)]
-use std::sync::Mutex;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::thread;
 
 use mascot_render_client::{
     change_character_mascot_render_server, mascot_render_server_address,
-    play_timeline_mascot_render_server, preview_mouth_flap_timeline_request,
-    show_mascot_render_server, PREVIEW_MOUTH_FLAP_FPS,
+    mascot_render_server_psd_file_names, play_timeline_mascot_render_server,
+    preview_mouth_flap_timeline_request, show_mascot_render_server, PREVIEW_MOUTH_FLAP_FPS,
 };
 use mascot_render_protocol::{
     ChangeCharacterRequest, MotionTimelineKind, MotionTimelineRequest, MotionTimelineStep,
@@ -43,6 +41,11 @@ const FALLBACK_DURATION_MS: u64 = 5_000;
 const DATA_ROOT_ENV: &str = "MASCOT_RENDER_SERVER_DATA_ROOT";
 #[cfg(test)]
 const OVERLAY_DURATION: std::time::Duration = std::time::Duration::from_secs(5);
+
+#[derive(Debug, Default)]
+struct MascotPsdAvailability {
+    normalized_file_names: Vec<String>,
+}
 
 pub fn sync_playback(line: &str, wav: &[u8]) {
     if line.trim().is_empty() || wav.is_empty() {
@@ -77,6 +80,65 @@ fn mascot_char_name_for_line(line: &str) -> Option<String> {
         Some(first)
     } else {
         None
+    }
+}
+
+fn mascot_psd_availability() -> &'static Mutex<MascotPsdAvailability> {
+    static AVAILABILITY: OnceLock<Mutex<MascotPsdAvailability>> = OnceLock::new();
+    AVAILABILITY.get_or_init(|| Mutex::new(MascotPsdAvailability::default()))
+}
+
+fn set_loaded_psd_file_names(file_names: Vec<String>) {
+    let normalized_file_names = file_names
+        .into_iter()
+        .map(|file_name| normalize_mascot_lookup_text(&file_name))
+        .filter(|file_name| !file_name.is_empty())
+        .collect();
+    *mascot_psd_availability()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner()) = MascotPsdAvailability {
+        normalized_file_names,
+    };
+}
+
+pub(crate) fn refresh_available_psd_file_names_from_server() -> anyhow::Result<usize> {
+    let file_names = mascot_render_server_psd_file_names()?;
+    let count = file_names.len();
+    set_loaded_psd_file_names(file_names);
+    Ok(count)
+}
+
+pub(crate) fn speaker_has_psd(speaker: &str) -> bool {
+    let normalized_speaker = normalize_mascot_lookup_text(speaker);
+    if normalized_speaker.is_empty() {
+        return false;
+    }
+
+    mascot_psd_availability()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .normalized_file_names
+        .iter()
+        .any(|file_name| file_name.contains(&normalized_speaker))
+}
+
+fn normalize_mascot_lookup_text(text: &str) -> String {
+    trim_psd_extension(text.trim())
+        .chars()
+        .filter(|ch| {
+            !matches!(
+                ch,
+                '/' | '\\' | '_' | '-' | ' ' | '　' | '.' | '(' | ')' | '[' | ']'
+            )
+        })
+        .flat_map(|ch| ch.to_lowercase())
+        .collect()
+}
+
+fn trim_psd_extension(text: &str) -> &str {
+    match text.rsplit_once('.') {
+        Some((stem, ext)) if ext.eq_ignore_ascii_case("psd") => stem,
+        _ => text,
     }
 }
 
@@ -155,6 +217,10 @@ where
         clear_overlay_message();
         return true;
     };
+    if !speaker_has_psd(speaker) {
+        clear_overlay_message();
+        return true;
+    }
 
     clear_overlay_message();
     let request_body = ChangeCharacterRequest {
@@ -229,12 +295,19 @@ pub(crate) fn with_overlay_state_lock<T>(f: impl FnOnce() -> T) -> T {
     dismiss_blocking_overlay_message();
     clear_overlay_message();
     clear_startup_overlay_message();
+    set_loaded_psd_file_names(Vec::new());
     let result = f();
     set_startup_in_progress(false);
     dismiss_blocking_overlay_message();
     clear_overlay_message();
     clear_startup_overlay_message();
+    set_loaded_psd_file_names(Vec::new());
     result
+}
+
+#[cfg(test)]
+pub(crate) fn set_loaded_psd_file_names_for_test(file_names: &[&str]) {
+    set_loaded_psd_file_names(file_names.iter().map(ToString::to_string).collect());
 }
 
 #[cfg(test)]

@@ -6,7 +6,6 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 use crate::app::{App, SpeakerStyleFocus};
-use crate::speakers;
 
 use super::{BG, CURSOR_NORMAL, DIM, FG, YELLOW};
 
@@ -69,8 +68,7 @@ pub(super) fn render_speaker_style_overlay(f: &mut Frame, app: &App) {
         return;
     };
 
-    let table = speakers::get();
-    let speaker_items = table.char_names.clone();
+    let speaker_items = App::speaker_style_speaker_items();
     let style_items: Vec<String> = App::speaker_style_styles(state.speaker_index)
         .iter()
         .map(|(name, _)| name.clone())
@@ -87,7 +85,7 @@ pub(super) fn render_speaker_style_overlay(f: &mut Frame, app: &App) {
         .max()
         .unwrap_or(0);
     let pane_content_width = speaker_width.max(style_width).max(8) as u16 + 2;
-    let footer = "h/l:focus  j/k:select  Space/p:preview  Enter:confirm  Esc:cancel";
+    let footer = "[M]:mascot  h/l:focus  j/k:select  Space/p:preview  Enter:confirm  Esc:cancel";
     let desired_width = (pane_content_width + 2)
         .saturating_mul(2)
         .saturating_add(1)

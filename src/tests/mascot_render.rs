@@ -47,6 +47,17 @@ fn mascot_char_name_for_explicit_character_tag_uses_tagged_character() {
 }
 
 #[test]
+fn speaker_has_psd_matches_normalized_filename_text() {
+    with_overlay_state_lock(|| {
+        set_loaded_psd_file_names_for_test(&["assets\\ずんだもん-立ち絵.PSD", "White_CUL.psd"]);
+
+        assert!(speaker_has_psd("ずんだもん"));
+        assert!(speaker_has_psd("WhiteCUL"));
+        assert!(!speaker_has_psd("四国めたん"));
+    });
+}
+
+#[test]
 fn default_mascot_data_root_uses_local_data_dir() {
     assert_eq!(
         default_mascot_data_root(),
@@ -106,6 +117,7 @@ fn sync_character_change_sends_current_speaker_as_character_name() {
         with_temp_request_log_dir(|dir| {
             let address = SocketAddr::from(([127, 0, 0, 1], 62152));
             let mut called_with = None;
+            set_loaded_psd_file_names_for_test(&["四国めたん.psd"]);
 
             let result = sync_character_change(address, Some("四国めたん"), |speaker| {
                 called_with = Some(speaker.to_string());
@@ -128,6 +140,7 @@ fn sync_character_change_failure_sets_blocking_overlay_and_stops_timeline() {
     with_overlay_state_lock(|| {
         with_temp_request_log_dir(|dir| {
             let address = SocketAddr::from(([127, 0, 0, 1], 62152));
+            set_loaded_psd_file_names_for_test(&["四国めたん.psd"]);
 
             let result = sync_character_change(address, Some("四国めたん"), |_| {
                 Err(anyhow::anyhow!("change-character failed"))
@@ -148,6 +161,24 @@ fn sync_character_change_failure_sets_blocking_overlay_and_stops_timeline() {
 
             dismiss_blocking_overlay_message();
         });
+    });
+}
+
+#[test]
+fn sync_character_change_skips_post_when_speaker_has_no_psd() {
+    with_overlay_state_lock(|| {
+        let address = SocketAddr::from(([127, 0, 0, 1], 62152));
+        let mut called = false;
+        set_loaded_psd_file_names_for_test(&["ずんだもん.psd"]);
+
+        let result = sync_character_change(address, Some("四国めたん"), |_| {
+            called = true;
+            Ok(())
+        });
+
+        assert!(result);
+        assert!(!called);
+        assert_eq!(current_overlay_message(), None);
     });
 }
 

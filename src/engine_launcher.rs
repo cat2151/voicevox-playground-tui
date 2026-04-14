@@ -2,7 +2,7 @@
 //! エンジンが起動していない場合にVOICEVOX実行ファイルを検索して起動し、
 //! 起動完了まで待機する。
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use mascot_render_client::{
     mascot_render_server_address, mascot_render_server_healthcheck_at,
     wait_for_mascot_render_server_healthcheck_at,
@@ -188,6 +188,35 @@ fn mascot_render_wait_status_message() -> String {
     )
 }
 
+fn mascot_render_psd_status_message() -> String {
+    String::from("[startup] fetching mascot PSD filenames...")
+}
+
+async fn refresh_mascot_psd_file_names<F>(progress: &mut F, log_to_stderr: bool)
+where
+    F: FnMut(String),
+{
+    progress(mascot_render_psd_status_message());
+    match tokio::task::spawn_blocking(
+        crate::mascot_render::refresh_available_psd_file_names_from_server,
+    )
+    .await
+    .context("mascot PSD fetch task failed")
+    {
+        Ok(Ok(count)) => {
+            if log_to_stderr {
+                eprintln!("mascot-render-server の PSD 一覧を取得しました: {count}件");
+            }
+        }
+        Ok(Err(error)) => {
+            eprintln!("mascot-render-server の PSD 一覧取得に失敗しました: {error:#}");
+        }
+        Err(error) => {
+            eprintln!("mascot-render-server の PSD 一覧取得に失敗しました: {error:#}");
+        }
+    }
+}
+
 async fn ensure_mascot_render_running_impl<F>(mut progress: F, log_to_stderr: bool) -> Result<()>
 where
     F: FnMut(String),
@@ -225,6 +254,17 @@ config.toml: {}\n\
         eprintln!("mascot-render-server の起動が完了しました。");
     }
 
+    Ok(())
+}
+
+async fn ensure_mascot_render_ready_impl<F>(mut progress: F, log_to_stderr: bool) -> Result<()>
+where
+    F: FnMut(String),
+{
+    ensure_mascot_render_running_impl(&mut progress, log_to_stderr).await?;
+    if is_mascot_render_running().await {
+        refresh_mascot_psd_file_names(&mut progress, log_to_stderr).await;
+    }
     Ok(())
 }
 
@@ -305,14 +345,14 @@ config.toml: {}\n\
 /// mascot-render-server が起動していなければ自動起動し、起動完了まで待機する。
 /// 実行ファイルが見つからない場合は自動起動をスキップする。
 pub async fn ensure_mascot_render_running() -> Result<()> {
-    ensure_mascot_render_running_impl(|_| {}, true).await
+    ensure_mascot_render_ready_impl(|_| {}, true).await
 }
 
 pub fn spawn_mascot_render_startup() {
     crate::mascot_render::set_startup_in_progress(true);
     crate::mascot_render::set_startup_overlay_message(mascot_render_check_status_message());
     tokio::spawn(async move {
-        let result = ensure_mascot_render_running_impl(
+        let result = ensure_mascot_render_ready_impl(
             crate::mascot_render::set_startup_overlay_message,
             false,
         )

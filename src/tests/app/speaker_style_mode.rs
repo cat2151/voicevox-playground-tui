@@ -104,3 +104,19 @@ async fn cancel_restores_previous_status_and_keeps_line() {
     assert_eq!(app.status_msg, "before");
     assert_eq!(app.lines[0], original);
 }
+
+#[test]
+fn speaker_items_mark_only_mascot_capable_speakers() {
+    crate::mascot_render::with_overlay_state_lock(|| {
+        setup();
+        crate::mascot_render::set_loaded_psd_file_names_for_test(&["assets\\ずんだもん立ち絵.PSD"]);
+
+        assert_eq!(
+            App::speaker_style_speaker_items(),
+            vec![
+                format!("ずんだもん{SPEAKER_STYLE_MASCOT_MARKER}"),
+                "四国めたん".to_string(),
+            ]
+        );
+    });
+}

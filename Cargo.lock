@@ -1128,7 +1128,7 @@ dependencies = [
 [[package]]
 name = "mascot-render-client"
 version = "0.1.0"
-source = "git+https://github.com/cat2151/mascot-render-server?branch=main#8b50aaec9e099cb4a4ce72eeb0c5c1b8f5efa64b"
+source = "git+https://github.com/cat2151/mascot-render-server?branch=main#4282619192c2c8dc4dc4c37380f7b976dc372bec"
 dependencies = [
  "anyhow",
  "mascot-render-protocol",
@@ -1138,7 +1138,7 @@ dependencies = [
 [[package]]
 name = "mascot-render-protocol"
 version = "0.1.0"
-source = "git+https://github.com/cat2151/mascot-render-server?branch=main#8b50aaec9e099cb4a4ce72eeb0c5c1b8f5efa64b"
+source = "git+https://github.com/cat2151/mascot-render-server?branch=main#4282619192c2c8dc4dc4c37380f7b976dc372bec"
 dependencies = [
  "anyhow",
  "serde",

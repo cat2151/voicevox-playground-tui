@@ -1,11 +1,29 @@
 //! speaker/style選択オーバーレイの操作。
 
 use crate::fetch::FetchRequest;
-use crate::{speakers, tag};
+use crate::{mascot_render, speakers, tag};
 
 use super::{App, Mode, SpeakerStyleFocus, SpeakerStyleState};
 
+pub(crate) const SPEAKER_STYLE_MASCOT_MARKER: &str = " [M]";
+
 impl App {
+    pub(crate) fn speaker_style_speaker_items() -> Vec<String> {
+        speakers::get()
+            .char_names
+            .iter()
+            .map(|name| Self::speaker_style_speaker_label(name))
+            .collect()
+    }
+
+    pub(crate) fn speaker_style_speaker_label(speaker_name: &str) -> String {
+        if mascot_render::speaker_has_psd(speaker_name) {
+            format!("{speaker_name}{SPEAKER_STYLE_MASCOT_MARKER}")
+        } else {
+            speaker_name.to_string()
+        }
+    }
+
     pub(crate) fn speaker_style_styles(speaker_index: usize) -> &'static [(String, u32)] {
         let table = speakers::get();
         table
