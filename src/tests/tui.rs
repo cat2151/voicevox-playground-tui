@@ -202,6 +202,32 @@ async fn handle_mode_event_space_previews_in_speaker_style_mode() {
 }
 
 #[tokio::test]
+async fn handle_mode_event_question_mark_enters_help_mode() {
+    let mut app = crate::app::App::new(vec![String::new()]);
+
+    handle_mode_event(
+        &mut app,
+        Event::Key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE)),
+    )
+    .await;
+
+    assert_eq!(app.mode, crate::app::Mode::Help);
+}
+
+#[tokio::test]
+async fn handle_mode_event_h_does_not_enter_help_mode() {
+    let mut app = crate::app::App::new(vec![String::new()]);
+
+    handle_mode_event(
+        &mut app,
+        Event::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE)),
+    )
+    .await;
+
+    assert_eq!(app.mode, crate::app::Mode::Normal);
+}
+
+#[tokio::test]
 async fn handle_mode_event_p_previews_in_speaker_style_mode() {
     let (mut app, mut rx) = make_speaker_style_app();
 

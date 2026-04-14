@@ -159,7 +159,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
         action: HelpAction::None,
     },
     HelpEntry {
-        key: "h",
+        key: "?",
         canonical_key: "",
         desc: "ヘルプメニューを開く",
         action: HelpAction::None,
@@ -179,7 +179,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
 ];
 
 impl App {
-    /// h: ヘルプメニューを開く。
+    /// ?: ヘルプメニューを開く。
     pub fn enter_help_mode(&mut self) {
         self.reset_pending_prefixes();
         self.help_key_buf.clear();

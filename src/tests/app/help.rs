@@ -97,8 +97,7 @@ fn matching_unknown_key_returns_empty() {
 
 #[test]
 fn hjkl_canonical_keys_are_empty_or_not_matching() {
-    // h, j, k は canonical_key が空なのでマッチしない
-    assert!(matching_indices("h").is_empty(), "hはマッチしないこと");
+    // j, k は canonical_key が空なのでマッチしない
     assert!(matching_indices("j").is_empty(), "jはマッチしないこと");
     assert!(matching_indices("k").is_empty(), "kはマッチしないこと");
     // l は "l / gt" エントリの canonical_key が "gt" になっているのでマッチしない
@@ -247,6 +246,19 @@ fn speaker_style_entry_uses_canonical_s() {
         .find(|e| e.action == HelpAction::SpeakerStyleMode)
         .expect("SpeakerStyleModeエントリがHELP_ENTRIESに存在すること");
     assert_eq!(entry.canonical_key, "s");
+}
+
+#[test]
+fn help_entry_uses_question_mark_not_h() {
+    assert!(HELP_ENTRIES.iter().any(|e| {
+        e.key == "?" && e.desc == "ヘルプメニューを開く" && e.canonical_key.is_empty()
+    }));
+    assert!(
+        !HELP_ENTRIES
+            .iter()
+            .any(|e| e.key == "h" && e.desc == "ヘルプメニューを開く"),
+        "ヘルプ表示はhではなく?であること"
+    );
 }
 
 #[test]

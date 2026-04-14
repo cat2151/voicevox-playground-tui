@@ -72,7 +72,7 @@ async fn handle_normal_mode(app: &mut App, ev: Event) -> LoopControl {
             KeyCode::Char('T') if app.pending_g => app.tab_prev(),
             KeyCode::Char('s') => app.enter_speaker_style_mode(),
             KeyCode::Char('v') => app.enter_intonation_mode().await,
-            KeyCode::Char('h') | KeyCode::Left => app.enter_help_mode(),
+            KeyCode::Char('?') | KeyCode::Left => app.enter_help_mode(),
             KeyCode::Char('l') | KeyCode::Right => app.tab_next(),
             KeyCode::Char(':') => {
                 app.reset_pending_prefixes();

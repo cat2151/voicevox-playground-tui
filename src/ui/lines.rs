@@ -273,7 +273,7 @@ pub(super) fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     let hint = match app.mode {
-        Mode::Normal => "h:help  j/k/Enter:move  i:edit  o/O:newline  dd:delete  p/P:paste  \"+p/\"+P:clip-paste  zm/zr:fold  Space:play  s:speaker/style  v:intonation  l:tab-next  q:quit",
+        Mode::Normal => "?:help  j/k/Enter:move  i:edit  o/O:newline  dd:delete  p/P:paste  \"+p/\"+P:clip-paste  zm/zr:fold  Space:play  s:speaker/style  v:intonation  l:tab-next  q:quit",
         Mode::Insert => "^A:home  ^E:end  ^K:kill  ^W:del-word  Esc/Enter:confirm",
         Mode::Command => "",
         Mode::SpeakerStyle => "h/l:focus  j/k:select  Space/p:preview  Enter:confirm  Esc:cancel",
