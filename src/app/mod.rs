@@ -70,7 +70,7 @@ pub struct SpeakerStyleState {
     pub previous_status_msg: String,
     /// 起動時点のspeaker/style。変更なし確定判定に使う。
     pub original_ctx: tag::VoiceCtx,
-    /// 選択中speakerのインデックス（speakers::get().char_namesに対応）
+    /// 選択中speakerのインデックス（speaker/styleオーバーレイ表示順に対応）
     pub speaker_index: usize,
     /// 選択中styleのインデックス（選択中speakerのstylesに対応）
     pub style_index: usize,

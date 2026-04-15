@@ -8,9 +8,21 @@ use super::{App, Mode, SpeakerStyleFocus, SpeakerStyleState};
 pub(crate) const SPEAKER_STYLE_MASCOT_MARKER: &str = " [M]";
 
 impl App {
+    pub(crate) fn speaker_style_speaker_names() -> Vec<String> {
+        let (mut mascot, mut normal) = (Vec::new(), Vec::new());
+        for name in &speakers::get().char_names {
+            if mascot_render::speaker_has_psd(name) {
+                mascot.push(name.clone());
+            } else {
+                normal.push(name.clone());
+            }
+        }
+        mascot.extend(normal);
+        mascot
+    }
+
     pub(crate) fn speaker_style_speaker_items() -> Vec<String> {
-        speakers::get()
-            .char_names
+        Self::speaker_style_speaker_names()
             .iter()
             .map(|name| Self::speaker_style_speaker_label(name))
             .collect()
@@ -26,12 +38,17 @@ impl App {
 
     pub(crate) fn speaker_style_styles(speaker_index: usize) -> &'static [(String, u32)] {
         let table = speakers::get();
-        table
-            .char_names
+        Self::speaker_style_speaker_names()
             .get(speaker_index)
             .and_then(|name| table.char_styles.get(name))
             .map(Vec::as_slice)
             .unwrap_or(&[])
+    }
+
+    fn speaker_style_speaker_name(speaker_index: usize) -> Option<String> {
+        Self::speaker_style_speaker_names()
+            .get(speaker_index)
+            .cloned()
     }
 
     pub(crate) fn speaker_style_ctx_from_indices(
@@ -39,10 +56,7 @@ impl App {
         style_index: usize,
     ) -> tag::VoiceCtx {
         let table = speakers::get();
-        let speaker_name = table
-            .char_names
-            .get(speaker_index)
-            .cloned()
+        let speaker_name = Self::speaker_style_speaker_name(speaker_index)
             .unwrap_or_else(|| table.default_char.clone());
         let styles = Self::speaker_style_styles(speaker_index);
         let (style_name, speaker_id) = styles
@@ -58,9 +72,7 @@ impl App {
     }
 
     fn speaker_style_indices_from_ctx(ctx: &tag::VoiceCtx) -> (usize, usize) {
-        let table = speakers::get();
-        let speaker_index = table
-            .char_names
+        let speaker_index = Self::speaker_style_speaker_names()
             .iter()
             .position(|name| name == &ctx.char_name)
             .unwrap_or(0);
@@ -124,7 +136,7 @@ impl App {
 
         match state.focus {
             SpeakerStyleFocus::Speaker => {
-                let speaker_count = speakers::get().char_names.len();
+                let speaker_count = Self::speaker_style_speaker_names().len();
                 if speaker_count == 0 {
                     return None;
                 }
