@@ -115,7 +115,7 @@ async fn worker_loop(
                             .await;
                     }
                 }
-                Err(e) => eprintln!("[fetch error] {e}"),
+                Err(e) => crate::runtime_notice::set_runtime_notice(format!("[fetch error] {e}")),
             }
             // 自分が最新のタスクである場合のみis_fetchingをリセット
             if fetch_gen_clone.load(Ordering::Relaxed) == gen {

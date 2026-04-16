@@ -38,7 +38,10 @@ pub fn spawn_runtime_loader(
         let _ = tx.send(RuntimeStartupEvent::Status(String::from(
             "[startup] checking VOICEVOX...",
         )));
-        let engine_result = crate::engine_launcher::ensure_engine_running(base_urls)
+        let engine_result =
+            crate::engine_launcher::ensure_engine_running_with_progress(base_urls, |status| {
+                let _ = tx.send(RuntimeStartupEvent::Status(status));
+            })
             .await
             .context("VOICEVOX startup failed");
         if let Err(err) = engine_result {

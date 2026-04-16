@@ -107,10 +107,9 @@ fn append_mascot_log(message: &str) -> anyhow::Result<()> {
 }
 
 pub(super) fn report_mascot_log_failure(error: &anyhow::Error) {
-    eprintln!(
-        "{}",
-        format_mascot_log_message(&format!("ログ書き込みに失敗しました: {error}"))
-    );
+    crate::runtime_notice::set_runtime_notice(format!(
+        "[mascot-render] ログ書き込みに失敗しました: {error}"
+    ));
 }
 
 pub(super) fn log_mascot_request_result(

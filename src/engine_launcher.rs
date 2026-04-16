@@ -192,6 +192,14 @@ fn mascot_render_psd_status_message() -> String {
     String::from("[startup] fetching mascot PSD filenames...")
 }
 
+fn voicevox_start_status_message() -> String {
+    String::from("[startup] starting VOICEVOX...")
+}
+
+fn voicevox_wait_status_message() -> String {
+    String::from("[startup] waiting for VOICEVOX...")
+}
+
 async fn refresh_mascot_psd_file_names<F>(progress: &mut F, log_to_stderr: bool)
 where
     F: FnMut(String),
@@ -209,10 +217,22 @@ where
             }
         }
         Ok(Err(error)) => {
-            eprintln!("mascot-render-server の PSD 一覧取得に失敗しました: {error:#}");
+            if log_to_stderr {
+                eprintln!("mascot-render-server の PSD 一覧取得に失敗しました: {error:#}");
+            } else {
+                crate::runtime_notice::set_runtime_notice(format!(
+                    "[mascot-render] PSD 一覧取得に失敗しました: {error}"
+                ));
+            }
         }
         Err(error) => {
-            eprintln!("mascot-render-server の PSD 一覧取得に失敗しました: {error:#}");
+            if log_to_stderr {
+                eprintln!("mascot-render-server の PSD 一覧取得に失敗しました: {error:#}");
+            } else {
+                crate::runtime_notice::set_runtime_notice(format!(
+                    "[mascot-render] PSD 一覧取得に失敗しました: {error}"
+                ));
+            }
         }
     }
 }
@@ -313,7 +333,14 @@ fn select_wait_url_for_engine<'a>(
 /// エンジンが起動していなければ自動起動し、起動完了まで待機する。
 /// base_urlsのうち1つでも起動済みであれば何もしない。
 /// 1つも起動していない場合はVOICEVOXを自動起動し、base_urls[0]で待機する。
-pub async fn ensure_engine_running(base_urls: &[&str]) -> Result<()> {
+async fn ensure_engine_running_impl<F>(
+    base_urls: &[&str],
+    mut progress: F,
+    log_to_stderr: bool,
+) -> Result<()>
+where
+    F: FnMut(String),
+{
     for &url in base_urls {
         if is_engine_running(url).await {
             return Ok(());
@@ -332,14 +359,36 @@ config.toml: {}\n\
     })?;
     let wait_url = select_wait_url_for_engine(base_urls, &config, &exe);
 
-    eprintln!("VOICEVOXエンジンを起動します: {}", exe.display());
+    progress(voicevox_start_status_message());
+    if log_to_stderr {
+        eprintln!("VOICEVOXエンジンを起動します: {}", exe.display());
+    }
     launch_voicevox(&exe)?;
 
-    eprintln!("VOICEVOXエンジンが起動するまで待機しています...");
+    progress(voicevox_wait_status_message());
+    if log_to_stderr {
+        eprintln!("VOICEVOXエンジンが起動するまで待機しています...");
+    }
     wait_for_engine(wait_url).await?;
-    eprintln!("VOICEVOXエンジンの起動が完了しました。");
+    if log_to_stderr {
+        eprintln!("VOICEVOXエンジンの起動が完了しました。");
+    }
 
     Ok(())
+}
+
+/// エンジンが起動していなければ自動起動し、起動完了まで待機する。
+/// base_urlsのうち1つでも起動済みであれば何もしない。
+/// 1つも起動していない場合はVOICEVOXを自動起動し、base_urls[0]で待機する。
+pub async fn ensure_engine_running(base_urls: &[&str]) -> Result<()> {
+    ensure_engine_running_impl(base_urls, |_| {}, true).await
+}
+
+pub async fn ensure_engine_running_with_progress<F>(base_urls: &[&str], progress: F) -> Result<()>
+where
+    F: FnMut(String),
+{
+    ensure_engine_running_impl(base_urls, progress, false).await
 }
 
 /// mascot-render-server が起動していなければ自動起動し、起動完了まで待機する。

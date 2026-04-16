@@ -293,8 +293,10 @@ pub(super) fn render_status(f: &mut Frame, app: &mut App, area: Rect) {
             _ => YELLOW,
         }
     };
+    let status_text = crate::runtime_notice::current_runtime_notice()
+        .unwrap_or_else(|| app.status_display().to_string());
     f.render_widget(
-        Paragraph::new(app.status_display()).style(Style::default().fg(status_color).bg(BG)),
+        Paragraph::new(status_text).style(Style::default().fg(status_color).bg(BG)),
         cols[0],
     );
 

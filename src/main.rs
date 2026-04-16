@@ -7,6 +7,7 @@ mod fetch;
 mod history;
 mod mascot_render;
 mod player;
+mod runtime_notice;
 mod speakers;
 mod startup;
 mod tag;

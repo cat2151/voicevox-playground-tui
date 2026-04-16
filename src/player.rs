@@ -26,7 +26,7 @@ pub fn spawn_player(mut rx: mpsc::Receiver<PlayRequest>) {
                     sink.play();
                 }
                 Err(e) => {
-                    eprintln!("[player error] {e}");
+                    crate::runtime_notice::set_runtime_notice(format!("[player error] {e}"));
                 }
             }
         }
