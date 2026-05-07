@@ -402,6 +402,52 @@ fn log_mascot_request_result_writes_success_log_to_file() {
 }
 
 #[test]
+fn log_mascot_sync_request_result_writes_sync_context() {
+    crate::mascot_render::with_overlay_state_lock(|| {
+        with_temp_request_log_dir(|dir| {
+            let address = SocketAddr::from(([127, 0, 0, 1], 62152));
+            let request = format_mascot_request("POST", "/show", address, None);
+            let result = Ok(());
+
+            log_mascot_sync_request_result(42, "show", "表示", address, &request, &result).unwrap();
+
+            let log = fs::read_to_string(dir.join("request.log")).unwrap();
+            assert!(log.contains("sync_id=42 phase=show"));
+            assert!(log.contains("port 62152 に 表示request を送信しました。"));
+            assert!(log.contains("POST /show HTTP/1.1"));
+        });
+    });
+}
+
+#[test]
+fn log_mascot_sync_snapshots_logs_fetch_failures_without_stopping() {
+    crate::mascot_render::with_overlay_state_lock(|| {
+        with_temp_request_log_dir(|dir| {
+            let address = SocketAddr::from(([127, 0, 0, 1], 0));
+
+            log_mascot_sync_snapshots(7, "timeline", "before", address).unwrap();
+
+            let log = fs::read_to_string(dir.join("request.log")).unwrap();
+            assert!(log.contains("sync_id=7 phase=timeline"));
+            assert!(log.contains("before /status snapshot を port 0 から取得できませんでした"));
+            assert!(log.contains(
+                "before /placement/anchor-plan snapshot を port 0 から取得できませんでした"
+            ));
+            assert!(log.contains("GET /status HTTP/1.1"));
+            assert!(log.contains("GET /placement/anchor-plan HTTP/1.1"));
+        });
+    });
+}
+
+#[test]
+fn next_mascot_sync_id_is_monotonic() {
+    let first = next_mascot_sync_id();
+    let second = next_mascot_sync_id();
+
+    assert_eq!(second, first + 1);
+}
+
+#[test]
 fn log_mascot_request_result_returns_error_when_log_write_fails() {
     with_overlay_state_lock(|| {
         let unique = SystemTime::now()

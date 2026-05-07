@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
@@ -25,7 +25,7 @@ mod test_support;
 use self::logging::{current_log_timestamp, format_mascot_log_message, mascot_log_path};
 use self::logging::{
     format_mascot_json_request, format_mascot_request, log_mascot_request_result,
-    report_mascot_log_failure,
+    log_mascot_sync_request_result, log_mascot_sync_snapshots, report_mascot_log_failure,
 };
 use self::overlay::clear_overlay_message;
 #[cfg(test)]
@@ -209,7 +209,25 @@ pub(crate) fn set_startup_in_progress(in_progress: bool) {
     startup_in_progress_flag().store(in_progress, Ordering::Relaxed);
 }
 
+fn next_mascot_sync_id() -> u64 {
+    static NEXT_SYNC_ID: AtomicU64 = AtomicU64::new(1);
+    NEXT_SYNC_ID.fetch_add(1, Ordering::Relaxed)
+}
+
+#[cfg(test)]
 fn sync_character_change<F>(address: SocketAddr, speaker: Option<&str>, change_character: F) -> bool
+where
+    F: FnOnce(&str) -> anyhow::Result<()>,
+{
+    sync_character_change_with_context(None, address, speaker, change_character)
+}
+
+fn sync_character_change_with_context<F>(
+    sync_id: Option<u64>,
+    address: SocketAddr,
+    speaker: Option<&str>,
+    change_character: F,
+) -> bool
 where
     F: FnOnce(&str) -> anyhow::Result<()>,
 {
@@ -227,28 +245,57 @@ where
         character_name: speaker.to_string(),
     };
     let request = format_mascot_json_request("POST", "/change-character", address, &request_body);
+    if let Some(sync_id) = sync_id {
+        log_playback_snapshots(sync_id, "change-character", "before", address);
+    }
     let change_character_result = change_character(speaker);
-    if let Err(error) = log_mascot_request_result(
-        &format!("{speaker} へのcharacter変更"),
-        address,
-        &request,
-        &change_character_result,
-    ) {
+    let log_result = if let Some(sync_id) = sync_id {
+        log_mascot_sync_request_result(
+            sync_id,
+            "change-character",
+            &format!("{speaker} へのcharacter変更"),
+            address,
+            &request,
+            &change_character_result,
+        )
+    } else {
+        log_mascot_request_result(
+            &format!("{speaker} へのcharacter変更"),
+            address,
+            &request,
+            &change_character_result,
+        )
+    };
+    if let Err(error) = log_result {
         report_mascot_log_failure(&error);
+    }
+    if let Some(sync_id) = sync_id {
+        log_playback_snapshots(sync_id, "change-character", "after", address);
     }
     change_character_result.is_ok()
 }
 
 fn handle_playback_sync(sync: MascotPlaybackSync) {
     let address = mascot_render_server_address();
+    let sync_id = next_mascot_sync_id();
 
     let show_request = format_mascot_request("POST", "/show", address, None);
+    log_playback_snapshots(sync_id, "show", "before", address);
     let show_result = show_mascot_render_server();
-    if let Err(error) = log_mascot_request_result("表示", address, &show_request, &show_result) {
+    if let Err(error) = log_mascot_sync_request_result(
+        sync_id,
+        "show",
+        "表示",
+        address,
+        &show_request,
+        &show_result,
+    ) {
         report_mascot_log_failure(&error);
     }
+    log_playback_snapshots(sync_id, "show", "after", address);
 
-    if !sync_character_change(
+    if !sync_character_change_with_context(
+        Some(sync_id),
         address,
         sync.char_name.as_deref(),
         change_character_mascot_render_server,
@@ -263,9 +310,23 @@ fn handle_playback_sync(sync: MascotPlaybackSync) {
         .as_deref()
         .map(|speaker| format!("{speaker} の口パク"))
         .unwrap_or_else(|| "口パク".to_string());
+    log_playback_snapshots(sync_id, "timeline", "before", address);
     let timeline_result = play_timeline_mascot_render_server(&request);
-    if let Err(error) = log_mascot_request_result(&action, address, &request_log, &timeline_result)
-    {
+    if let Err(error) = log_mascot_sync_request_result(
+        sync_id,
+        "timeline",
+        &action,
+        address,
+        &request_log,
+        &timeline_result,
+    ) {
+        report_mascot_log_failure(&error);
+    }
+    log_playback_snapshots(sync_id, "timeline", "after", address);
+}
+
+fn log_playback_snapshots(sync_id: u64, phase: &str, timing: &str, address: SocketAddr) {
+    if let Err(error) = log_mascot_sync_snapshots(sync_id, phase, timing, address) {
         report_mascot_log_failure(&error);
     }
 }
