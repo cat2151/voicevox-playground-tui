@@ -372,5 +372,5 @@ pub(crate) fn set_loaded_psd_file_names_for_test(file_names: &[&str]) {
 }
 
 #[cfg(test)]
-#[path = "../tests/mascot_render.rs"]
+#[path = "../tests/mascot_render/mod.rs"]
 mod tests;
