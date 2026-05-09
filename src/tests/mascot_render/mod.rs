@@ -187,6 +187,119 @@ fn sync_character_change_sends_current_speaker_as_character_name() {
 }
 
 #[test]
+fn sync_character_change_disables_favorite_ensemble_before_change_character() {
+    with_overlay_state_lock(|| {
+        with_temp_request_log_dir(|dir| {
+            let address = SocketAddr::from(([127, 0, 0, 1], 62152));
+            let events = std::cell::RefCell::new(Vec::new());
+            set_loaded_psd_file_names_for_test(&["四国めたん.psd"]);
+
+            let result = sync_character_change_with_context(
+                None,
+                None,
+                address,
+                Some("四国めたん"),
+                || {
+                    events.borrow_mut().push("disable");
+                    Ok(())
+                },
+                |speaker| {
+                    events.borrow_mut().push("change");
+                    assert_eq!(speaker, "四国めたん");
+                    Ok(())
+                },
+            );
+
+            assert!(result);
+            assert_eq!(events.into_inner(), vec!["disable", "change"]);
+
+            let log = fs::read_to_string(dir.join("request.log")).unwrap();
+            let disable_index = log
+                .find("POST /favorite-ensemble/disable HTTP/1.1")
+                .expect("favorite ensemble disable request should be logged");
+            let change_index = log
+                .find("POST /change-character HTTP/1.1")
+                .expect("change-character request should be logged");
+            assert!(disable_index < change_index);
+            assert!(log.contains("favorite ensemble無効化request を送信しました。"));
+        });
+    });
+}
+
+#[test]
+fn sync_character_change_disable_failure_sets_blocking_overlay_and_skips_change_character() {
+    with_overlay_state_lock(|| {
+        with_temp_request_log_dir(|dir| {
+            let address = SocketAddr::from(([127, 0, 0, 1], 62152));
+            let mut change_called = false;
+            set_loaded_psd_file_names_for_test(&["四国めたん.psd"]);
+
+            let result = sync_character_change_with_context(
+                None,
+                None,
+                address,
+                Some("四国めたん"),
+                || Err(anyhow::anyhow!("favorite ensemble disable failed")),
+                |_| {
+                    change_called = true;
+                    Ok(())
+                },
+            );
+
+            assert!(!result);
+            assert!(!change_called);
+
+            let (message, dismiss_with_enter) = current_overlay_message().unwrap();
+            assert!(dismiss_with_enter);
+            assert!(message.contains("POST /favorite-ensemble/disable HTTP/1.1"));
+            assert!(message.contains("favorite ensemble disable failed"));
+            assert!(!message.contains("POST /change-character HTTP/1.1"));
+
+            let log = fs::read_to_string(dir.join("request.log")).unwrap();
+            assert!(log.contains("POST /favorite-ensemble/disable HTTP/1.1"));
+            assert!(log.contains("favorite ensemble disable failed"));
+            assert!(!log.contains("POST /change-character HTTP/1.1"));
+
+            dismiss_blocking_overlay_message();
+        });
+    });
+}
+
+#[test]
+fn disable_favorite_ensemble_posts_disable_endpoint_without_body() {
+    let listener = std::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))).unwrap();
+    let address = listener.local_addr().unwrap();
+    let handle = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+        let mut request = String::new();
+
+        loop {
+            let mut line = String::new();
+            std::io::BufRead::read_line(&mut reader, &mut line).unwrap();
+            request.push_str(&line);
+            if line == "\r\n" || line == "\n" {
+                break;
+            }
+        }
+
+        std::io::Write::write_all(&mut stream, b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+            .unwrap();
+        request
+    });
+
+    disable_favorite_ensemble_mascot_render_server_at(address).unwrap();
+
+    let request = handle.join().unwrap();
+    assert!(request.starts_with("POST /favorite-ensemble/disable HTTP/1.1\r\n"));
+    assert!(request.contains(&format!("Host: {address}\r\n")));
+    assert!(request.contains("Connection: close\r\n"));
+    assert!(request.contains("Content-Length: 0\r\n"));
+    assert!(!request.contains("Content-Type: application/json"));
+    assert!(request.ends_with("\r\n\r\n"));
+}
+
+#[test]
 fn sync_character_change_failure_sets_blocking_overlay_and_stops_timeline() {
     with_overlay_state_lock(|| {
         with_temp_request_log_dir(|dir| {
