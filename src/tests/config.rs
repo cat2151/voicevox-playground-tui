@@ -21,6 +21,7 @@ mascot_render_server_path = "/opt/mascot-render-server"
         config.mascot_render_server_path,
         Some(PathBuf::from("/opt/mascot-render-server"))
     );
+    assert!(!config.mascot_render_snapshot_log);
 }
 
 #[test]
@@ -42,6 +43,18 @@ mascot_render_server_path = '/opt/mascot-render-server'
         config.mascot_render_server_path,
         Some(PathBuf::from("/opt/mascot-render-server"))
     );
+}
+
+#[test]
+fn parse_config_toml_reads_mascot_render_snapshot_log() {
+    let config = parse_config_toml(
+        r#"
+mascot_render_snapshot_log = true
+"#,
+    )
+    .unwrap();
+
+    assert!(config.mascot_render_snapshot_log);
 }
 
 #[test]

@@ -12,6 +12,7 @@ pub struct EngineConfig {
     pub voicevox_path: Option<PathBuf>,
     pub voicevox_nemo_path: Option<PathBuf>,
     pub mascot_render_server_path: Option<PathBuf>,
+    pub mascot_render_snapshot_log: bool,
 }
 
 pub fn config_path() -> PathBuf {
@@ -40,6 +41,8 @@ fn default_config_toml() -> String {
 # voicevox_nemo_path = "<your voicevox nemo path>"
 # mascot-render-server executable path or parent directory (optional)
 # mascot_render_server_path = "<your mascot-render-server path>"
+# mascot-render diagnostic snapshots for successful requests (adds latency)
+# mascot_render_snapshot_log = false
 "#
     .to_string()
 }
@@ -50,6 +53,7 @@ fn parse_config_toml(content: &str) -> Result<EngineConfig> {
         voicevox_path: Option<String>,
         voicevox_nemo_path: Option<String>,
         mascot_render_server_path: Option<String>,
+        mascot_render_snapshot_log: Option<bool>,
     }
 
     let raw: RawConfig = toml::from_str(content)?;
@@ -66,6 +70,7 @@ fn parse_config_toml(content: &str) -> Result<EngineConfig> {
             .mascot_render_server_path
             .filter(|s| !s.is_empty())
             .map(PathBuf::from),
+        mascot_render_snapshot_log: raw.mascot_render_snapshot_log.unwrap_or_default(),
     })
 }
 

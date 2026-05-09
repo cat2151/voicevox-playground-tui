@@ -151,7 +151,19 @@ fn log_mascot_sync_request_result_writes_sync_context() {
             let request = format_mascot_request("POST", "/show", address, None);
             let result = Ok(());
 
-            log_mascot_sync_request_result(42, "show", "表示", address, &request, &result).unwrap();
+            log_mascot_sync_request_result_timed(
+                MascotSyncRequestContext {
+                    sync_id: 42,
+                    phase: "show",
+                    action: "表示",
+                    address,
+                    sync_started_at: None,
+                },
+                &request,
+                &result,
+                std::time::Duration::from_millis(0),
+            )
+            .unwrap();
 
             let log = fs::read_to_string(dir.join("request.log")).unwrap();
             assert!(log.contains("sync_id=42 phase=show"));
@@ -162,12 +174,46 @@ fn log_mascot_sync_request_result_writes_sync_context() {
 }
 
 #[test]
+fn log_mascot_sync_request_timing_writes_start_end_and_duration() {
+    crate::mascot_render::with_overlay_state_lock(|| {
+        with_temp_request_log_dir(|dir| {
+            let address = SocketAddr::from(([127, 0, 0, 1], 62152));
+            let request = format_mascot_request("POST", "/show", address, None);
+            let result = Ok(());
+
+            let context = MascotSyncRequestContext {
+                sync_id: 42,
+                phase: "show",
+                action: "表示",
+                address,
+                sync_started_at: None,
+            };
+
+            log_mascot_sync_request_start(context).unwrap();
+            log_mascot_sync_request_result_timed(
+                context,
+                &request,
+                &result,
+                std::time::Duration::from_millis(12),
+            )
+            .unwrap();
+
+            let log = fs::read_to_string(dir.join("request.log")).unwrap();
+            assert!(log.contains("sync_id=42 phase=show event=request_start"));
+            assert!(log.contains("sync_id=42 phase=show event=request_end"));
+            assert!(log.contains("duration_ms=12"));
+            assert!(log.contains("status=ok"));
+        });
+    });
+}
+
+#[test]
 fn log_mascot_sync_snapshots_logs_fetch_failures_without_stopping() {
     crate::mascot_render::with_overlay_state_lock(|| {
         with_temp_request_log_dir(|dir| {
             let address = SocketAddr::from(([127, 0, 0, 1], 0));
 
-            log_mascot_sync_snapshots(7, "timeline", "before", address).unwrap();
+            log_mascot_sync_snapshots_timed(7, "timeline", "before", address, None).unwrap();
 
             let log = fs::read_to_string(dir.join("request.log")).unwrap();
             assert!(log.contains("sync_id=7 phase=timeline"));
@@ -175,6 +221,11 @@ fn log_mascot_sync_snapshots_logs_fetch_failures_without_stopping() {
             assert!(log.contains(
                 "before /placement/anchor-plan snapshot を port 0 から取得できませんでした"
             ));
+            assert!(log.contains("event=snapshot_start"));
+            assert!(log.contains("event=snapshot_endpoint_start"));
+            assert!(log.contains("event=snapshot_endpoint_end"));
+            assert!(log.contains("event=snapshot_end"));
+            assert!(log.contains("duration_ms="));
             assert!(log.contains("GET /status HTTP/1.1"));
             assert!(log.contains("GET /placement/anchor-plan HTTP/1.1"));
         });

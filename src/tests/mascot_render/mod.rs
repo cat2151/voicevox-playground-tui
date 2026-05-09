@@ -86,6 +86,55 @@ fn mascot_log_path_uses_app_logs_dir() {
 }
 
 #[test]
+fn playback_snapshots_are_skipped_when_snapshot_log_is_disabled() {
+    with_overlay_state_lock(|| {
+        with_temp_request_log_dir(|dir| {
+            set_snapshot_logging_enabled(false);
+            let address = SocketAddr::from(([127, 0, 0, 1], 0));
+
+            log_playback_snapshots(7, "timeline", "before", address, None);
+
+            assert!(!dir.join("request.log").exists());
+        });
+    });
+}
+
+#[test]
+fn playback_snapshots_run_when_snapshot_log_is_enabled() {
+    with_overlay_state_lock(|| {
+        with_temp_request_log_dir(|dir| {
+            set_snapshot_logging_enabled(true);
+            let address = SocketAddr::from(([127, 0, 0, 1], 0));
+
+            log_playback_snapshots(7, "timeline", "before", address, None);
+
+            let log = fs::read_to_string(dir.join("request.log")).unwrap();
+            assert!(log.contains("sync_id=7 phase=timeline"));
+            assert!(log.contains("timing=before"));
+            assert!(log.contains("event=snapshot_start"));
+        });
+    });
+}
+
+#[test]
+fn playback_error_snapshot_runs_even_when_snapshot_log_is_disabled() {
+    with_overlay_state_lock(|| {
+        with_temp_request_log_dir(|dir| {
+            set_snapshot_logging_enabled(false);
+            let address = SocketAddr::from(([127, 0, 0, 1], 0));
+            let result = Err(anyhow::anyhow!("request failed"));
+
+            log_playback_error_snapshots(7, "timeline", address, None, &result);
+
+            let log = fs::read_to_string(dir.join("request.log")).unwrap();
+            assert!(log.contains("sync_id=7 phase=timeline"));
+            assert!(log.contains("timing=error"));
+            assert!(log.contains("event=snapshot_start"));
+        });
+    });
+}
+
+#[test]
 fn with_temp_request_log_dir_cleans_up_base_dir_after_panic() {
     let mut base_dir = None;
 

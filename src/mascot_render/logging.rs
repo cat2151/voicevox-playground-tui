@@ -2,7 +2,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::Local;
 use serde::Serialize;
@@ -99,6 +99,40 @@ fn sync_log_prefix(sync_id: u64, phase: &str) -> String {
     format!("sync_id={sync_id} phase={phase}")
 }
 
+fn duration_ms(duration: Duration) -> u128 {
+    duration.as_millis()
+}
+
+fn optional_elapsed_field(sync_started_at: Option<Instant>) -> String {
+    sync_started_at
+        .map(|started_at| format!(" elapsed_ms={}", duration_ms(started_at.elapsed())))
+        .unwrap_or_default()
+}
+
+fn optional_request_duration_field(request_duration: Option<Duration>) -> String {
+    request_duration
+        .map(|duration| format!(" duration_ms={}", duration_ms(duration)))
+        .unwrap_or_default()
+}
+
+fn event_details_with_elapsed(sync_started_at: Option<Instant>, details: &str) -> String {
+    let elapsed = optional_elapsed_field(sync_started_at);
+    if elapsed.is_empty() {
+        details.to_string()
+    } else {
+        format!("{} {details}", elapsed.trim_start())
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct MascotSyncRequestContext<'a> {
+    pub(super) sync_id: u64,
+    pub(super) phase: &'a str,
+    pub(super) action: &'a str,
+    pub(super) address: SocketAddr,
+    pub(super) sync_started_at: Option<Instant>,
+}
+
 pub(super) fn mascot_log_path() -> Option<PathBuf> {
     Some(
         crate::history::history_dir()
@@ -126,6 +160,23 @@ pub(super) fn report_mascot_log_failure(error: &anyhow::Error) {
     crate::runtime_notice::set_runtime_notice(format!(
         "[mascot-render] ログ書き込みに失敗しました: {error}"
     ));
+}
+
+pub(super) fn log_mascot_sync_event(
+    sync_id: u64,
+    phase: &str,
+    event: &str,
+    details: &str,
+) -> anyhow::Result<()> {
+    let prefix = sync_log_prefix(sync_id, phase);
+    let details = if details.is_empty() {
+        String::new()
+    } else {
+        format!(" {details}")
+    };
+    append_mascot_log(&format_mascot_log_message(&format!(
+        "{prefix} event={event}{details}"
+    )))
 }
 
 pub(super) fn log_mascot_request_result(
@@ -156,29 +207,52 @@ pub(super) fn log_mascot_request_result(
     }
 }
 
-pub(super) fn log_mascot_sync_request_result(
-    sync_id: u64,
-    phase: &str,
-    action: &str,
-    address: SocketAddr,
+pub(super) fn log_mascot_sync_request_start(
+    context: MascotSyncRequestContext<'_>,
+) -> anyhow::Result<()> {
+    let prefix = sync_log_prefix(context.sync_id, context.phase);
+    append_mascot_log(&format_mascot_log_message(&format!(
+        "{prefix} event=request_start{} port {} への {action}request 送信を開始します。",
+        optional_elapsed_field(context.sync_started_at),
+        context.address.port(),
+        action = context.action
+    )))
+}
+
+pub(super) fn log_mascot_sync_request_result_timed(
+    context: MascotSyncRequestContext<'_>,
     request: &str,
     result: &Result<(), anyhow::Error>,
+    request_duration: Duration,
 ) -> anyhow::Result<()> {
-    let prefix = sync_log_prefix(sync_id, phase);
+    log_mascot_sync_request_result_inner(context, request, result, Some(request_duration))
+}
+
+fn log_mascot_sync_request_result_inner(
+    context: MascotSyncRequestContext<'_>,
+    request: &str,
+    result: &Result<(), anyhow::Error>,
+    request_duration: Option<Duration>,
+) -> anyhow::Result<()> {
+    let prefix = sync_log_prefix(context.sync_id, context.phase);
+    let elapsed_field = optional_elapsed_field(context.sync_started_at);
+    let duration_field = optional_request_duration_field(request_duration);
     match result {
         Ok(()) => append_mascot_log(&format!(
             "{}\nrequest:\n{request}",
             format_mascot_log_message(&format!(
-                "{prefix} port {} に {action}request を送信しました。",
-                address.port()
+                "{prefix} event=request_end{elapsed_field}{duration_field} status=ok port {} に {action}request を送信しました。",
+                context.address.port(),
+                action = context.action
             ))
         )),
         Err(error) => {
             let message = format!(
                 "{}\nrequest:\n{request}",
                 format_mascot_log_message(&format!(
-                    "{prefix} port {} への {action}request 送信に失敗しました: {error}",
-                    address.port()
+                    "{prefix} event=request_end{elapsed_field}{duration_field} status=error port {} への {action}request 送信に失敗しました: {error}",
+                    context.address.port(),
+                    action = context.action
                 ))
             );
             set_blocking_overlay_message(&message);
@@ -187,17 +261,46 @@ pub(super) fn log_mascot_sync_request_result(
     }
 }
 
-pub(super) fn log_mascot_sync_snapshots(
+pub(super) fn log_mascot_sync_snapshots_timed(
     sync_id: u64,
     phase: &str,
     timing: &str,
     address: SocketAddr,
+    sync_started_at: Option<Instant>,
 ) -> anyhow::Result<()> {
     let mut result = Ok(());
+    let snapshots_started_at = Instant::now();
+    if let Err(error) = log_mascot_sync_event(
+        sync_id,
+        phase,
+        "snapshot_start",
+        &event_details_with_elapsed(
+            sync_started_at,
+            &format!("timing={timing} endpoints={}", SNAPSHOT_ENDPOINTS.join(",")),
+        ),
+    ) {
+        result = Err(error);
+    }
     for endpoint in SNAPSHOT_ENDPOINTS {
-        if let Err(error) = log_mascot_sync_snapshot(sync_id, phase, timing, address, endpoint) {
+        if let Err(error) =
+            log_mascot_sync_snapshot(sync_id, phase, timing, address, endpoint, sync_started_at)
+        {
             result = Err(error);
         }
+    }
+    if let Err(error) = log_mascot_sync_event(
+        sync_id,
+        phase,
+        "snapshot_end",
+        &event_details_with_elapsed(
+            sync_started_at,
+            &format!(
+                "timing={timing} duration_ms={}",
+                duration_ms(snapshots_started_at.elapsed())
+            ),
+        ),
+    ) {
+        result = Err(error);
     }
     result
 }
@@ -208,42 +311,84 @@ fn log_mascot_sync_snapshot(
     timing: &str,
     address: SocketAddr,
     endpoint: &str,
+    sync_started_at: Option<Instant>,
 ) -> anyhow::Result<()> {
+    let mut result = Ok(());
+    if let Err(error) = log_mascot_sync_event(
+        sync_id,
+        phase,
+        "snapshot_endpoint_start",
+        &event_details_with_elapsed(
+            sync_started_at,
+            &format!("timing={timing} endpoint={endpoint}"),
+        ),
+    ) {
+        result = Err(error);
+    }
     let request = format_mascot_request("GET", endpoint, address, None);
+    let endpoint_started_at = Instant::now();
     let snapshot = fetch_mascot_http_snapshot(address, endpoint);
-    append_mascot_log(&format_mascot_sync_snapshot_message(
-        sync_id, phase, timing, endpoint, address, &request, &snapshot,
-    ))
+    let endpoint_duration = endpoint_started_at.elapsed();
+    if let Err(error) = append_mascot_log(&format_mascot_sync_snapshot_message(
+        MascotSyncSnapshotMessageContext {
+            sync_id,
+            phase,
+            timing,
+            endpoint,
+            address,
+            request: &request,
+            endpoint_duration,
+            sync_started_at,
+        },
+        &snapshot,
+    )) {
+        result = Err(error);
+    }
+    result
 }
 
 fn format_mascot_sync_snapshot_message(
-    sync_id: u64,
-    phase: &str,
-    timing: &str,
-    endpoint: &str,
-    address: SocketAddr,
-    request: &str,
+    context: MascotSyncSnapshotMessageContext<'_>,
     snapshot: &anyhow::Result<MascotHttpSnapshot>,
 ) -> String {
-    let prefix = sync_log_prefix(sync_id, phase);
+    let prefix = sync_log_prefix(context.sync_id, context.phase);
+    let elapsed_field = optional_elapsed_field(context.sync_started_at);
+    let duration = duration_ms(context.endpoint_duration);
     match snapshot {
         Ok(snapshot) => format!(
-            "{}\nrequest:\n{request}\nresponse:\n{}",
+            "{}\nrequest:\n{}\nresponse:\n{}",
             format_mascot_log_message(&format!(
-                "{prefix} {timing} {endpoint} snapshot を port {} から取得しました。",
-                address.port()
+                "{prefix} event=snapshot_endpoint_end{elapsed_field} timing={timing} endpoint={endpoint} duration_ms={duration} status=ok {timing} {endpoint} snapshot を port {} から取得しました。",
+                context.address.port(),
+                timing = context.timing,
+                endpoint = context.endpoint
             )),
+            context.request,
             indented_lines(&format_mascot_snapshot_response(snapshot))
         ),
         Err(error) => format!(
-            "{}\nrequest:\n{request}\nerror:\n{}",
+            "{}\nrequest:\n{}\nerror:\n{}",
             format_mascot_log_message(&format!(
-                "{prefix} {timing} {endpoint} snapshot を port {} から取得できませんでした: {error}",
-                address.port()
+                "{prefix} event=snapshot_endpoint_end{elapsed_field} timing={timing} endpoint={endpoint} duration_ms={duration} status=error {timing} {endpoint} snapshot を port {} から取得できませんでした: {error}",
+                context.address.port(),
+                timing = context.timing,
+                endpoint = context.endpoint
             )),
+            context.request,
             indented_lines(&error.to_string())
         ),
     }
+}
+
+struct MascotSyncSnapshotMessageContext<'a> {
+    sync_id: u64,
+    phase: &'a str,
+    timing: &'a str,
+    endpoint: &'a str,
+    address: SocketAddr,
+    request: &'a str,
+    endpoint_duration: Duration,
+    sync_started_at: Option<Instant>,
 }
 
 fn format_mascot_snapshot_response(snapshot: &MascotHttpSnapshot) -> String {
