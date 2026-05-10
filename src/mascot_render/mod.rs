@@ -25,13 +25,11 @@ mod state;
 mod test_support;
 
 #[cfg(test)]
-pub(crate) use self::data::default_mascot_data_root;
+use self::data::{default_mascot_data_root, mascot_data_root, set_loaded_psd_file_names};
 pub(crate) use self::data::{
-    init_data_root_env, mascot_char_name_for_line, refresh_available_psd_file_names_from_server,
-    speaker_has_psd, wav_duration_ms,
+    init_data_root_env, refresh_available_psd_file_names_from_server, speaker_has_psd,
 };
-#[cfg(test)]
-use self::data::{mascot_data_root, set_loaded_psd_file_names};
+use self::data::{mascot_char_name_for_line, wav_duration_ms};
 pub(crate) use self::http::disable_favorite_ensemble_mascot_render_server_at;
 #[cfg(test)]
 use self::logging::{current_log_timestamp, format_mascot_log_message, mascot_log_path};
@@ -54,11 +52,9 @@ pub(crate) use self::playback_logging::{
     log_playback_request_start, log_playback_snapshots,
 };
 #[cfg(test)]
-pub(crate) use self::state::set_snapshot_logging_enabled;
-pub(crate) use self::state::{
-    init_snapshot_logging_from_config, is_startup_in_progress, next_mascot_sync_id,
-    set_startup_in_progress, snapshot_logging_enabled,
-};
+use self::state::set_snapshot_logging_enabled;
+pub(crate) use self::state::{init_snapshot_logging_from_config, set_startup_in_progress};
+use self::state::{is_startup_in_progress, next_mascot_sync_id, snapshot_logging_enabled};
 
 const MIN_DURATION_MS: u64 = 100;
 const FALLBACK_DURATION_MS: u64 = 5_000;

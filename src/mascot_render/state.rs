@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::OnceLock;
 
-pub(crate) fn is_startup_in_progress() -> bool {
+pub(super) fn is_startup_in_progress() -> bool {
     startup_in_progress_flag().load(Ordering::Relaxed)
 }
 
@@ -27,12 +27,12 @@ pub(crate) fn init_snapshot_logging_from_config() {
     set_snapshot_logging_enabled(enabled);
 }
 
-pub(crate) fn set_snapshot_logging_enabled(enabled: bool) {
+pub(super) fn set_snapshot_logging_enabled(enabled: bool) {
     snapshot_logging_enabled_flag().store(enabled, Ordering::Relaxed);
     snapshot_logging_initialized_flag().store(true, Ordering::Relaxed);
 }
 
-pub(crate) fn snapshot_logging_enabled() -> bool {
+pub(super) fn snapshot_logging_enabled() -> bool {
     if !snapshot_logging_initialized_flag().load(Ordering::Relaxed) {
         init_snapshot_logging_from_config();
     }
@@ -49,7 +49,7 @@ fn snapshot_logging_initialized_flag() -> &'static AtomicBool {
     FLAG.get_or_init(|| AtomicBool::new(false))
 }
 
-pub(crate) fn next_mascot_sync_id() -> u64 {
+pub(super) fn next_mascot_sync_id() -> u64 {
     static NEXT_SYNC_ID: AtomicU64 = AtomicU64::new(1);
     NEXT_SYNC_ID.fetch_add(1, Ordering::Relaxed)
 }

@@ -12,7 +12,7 @@ struct MascotPsdAvailability {
     normalized_file_names: Vec<String>,
 }
 
-pub(crate) fn mascot_char_name_for_line(line: &str) -> Option<String> {
+pub(super) fn mascot_char_name_for_line(line: &str) -> Option<String> {
     let mut segments = tag::parse_line(line).into_iter();
     let (_, first_ctx) = segments.next()?;
     let first = first_ctx.char_name;
@@ -83,7 +83,7 @@ fn trim_psd_extension(text: &str) -> &str {
     }
 }
 
-pub(crate) fn wav_duration_ms(wav: &[u8]) -> Option<u64> {
+pub(super) fn wav_duration_ms(wav: &[u8]) -> Option<u64> {
     if wav.len() < 44 || &wav[0..4] != b"RIFF" || &wav[8..12] != b"WAVE" {
         return None;
     }
@@ -106,12 +106,12 @@ pub(crate) fn init_data_root_env() {
     }
 }
 
-pub(crate) fn default_mascot_data_root() -> Option<PathBuf> {
+pub(super) fn default_mascot_data_root() -> Option<PathBuf> {
     dirs::data_local_dir().map(|base| base.join("mascot-render-server"))
 }
 
 #[cfg(test)]
-pub(crate) fn mascot_data_root() -> Option<PathBuf> {
+pub(super) fn mascot_data_root() -> Option<PathBuf> {
     if let Some(root) = std::env::var_os(DATA_ROOT_ENV) {
         let path = PathBuf::from(root);
         return if path.is_absolute() {
