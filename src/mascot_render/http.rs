@@ -4,6 +4,9 @@ use std::time::Duration;
 
 use anyhow::{bail, Context};
 
+const MASCOT_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+const MASCOT_IO_TIMEOUT: Duration = Duration::from_secs(2);
+
 pub(crate) fn disable_favorite_ensemble_mascot_render_server_at(
     address: SocketAddr,
 ) -> anyhow::Result<()> {
@@ -11,13 +14,13 @@ pub(crate) fn disable_favorite_ensemble_mascot_render_server_at(
 }
 
 fn post_empty_mascot_request(address: SocketAddr, path: &str) -> anyhow::Result<()> {
-    let mut stream = std::net::TcpStream::connect_timeout(&address, Duration::from_secs(2))
+    let mut stream = std::net::TcpStream::connect_timeout(&address, MASCOT_CONNECT_TIMEOUT)
         .with_context(|| format!("failed to connect to mascot-render-server at {address}"))?;
     stream
-        .set_read_timeout(Some(Duration::from_secs(2)))
+        .set_read_timeout(Some(MASCOT_IO_TIMEOUT))
         .with_context(|| format!("failed to set read timeout for {address}"))?;
     stream
-        .set_write_timeout(Some(Duration::from_secs(2)))
+        .set_write_timeout(Some(MASCOT_IO_TIMEOUT))
         .with_context(|| format!("failed to set write timeout for {address}"))?;
 
     let request = format!(
