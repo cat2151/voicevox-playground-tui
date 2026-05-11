@@ -60,6 +60,7 @@ async fn main() -> Result<()> {
 
     mascot_render::init_data_root_env();
     mascot_render::init_snapshot_logging_from_config();
+    let _mascot_ensemble_session = mascot_render::MascotEnsembleSessionGuard::new();
     if mode == StartupMode::Clipboard {
         if let Err(error) = engine_launcher::ensure_mascot_render_running().await {
             eprintln!("mascot-render-server の自動起動に失敗しました: {error:#}");

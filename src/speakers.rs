@@ -194,6 +194,10 @@ pub fn get() -> &'static SpeakerTable {
     TABLE.get().expect("speakers::load() が呼ばれていない")
 }
 
+pub fn try_get() -> Option<&'static SpeakerTable> {
+    TABLE.get()
+}
+
 impl SpeakerTable {
     /// (キャラ名, スタイル名) → style_id
     pub fn resolve_by_name(&self, char_name: &str, style_name: &str) -> Option<u32> {

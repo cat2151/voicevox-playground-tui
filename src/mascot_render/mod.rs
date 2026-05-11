@@ -1,4 +1,3 @@
-use std::io::{BufRead, BufReader, Read, Write};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -7,14 +6,17 @@ use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use anyhow::{bail, Context};
+use anyhow::bail;
 use mascot_render_client::{
     change_character_mascot_render_server, mascot_render_server_address,
-    mascot_render_server_psd_file_names, play_timeline_mascot_render_server,
-    preview_mouth_flap_timeline_request, show_mascot_render_server, PREVIEW_MOUTH_FLAP_FPS,
+    mascot_render_server_healthcheck, mascot_render_server_psd_file_names,
+    mascot_render_server_status, play_timeline_mascot_render_server,
+    preview_mouth_flap_timeline_request, set_single_character_mode_mascot_render_server,
+    set_vpt_ensemble_mascot_render_server, show_mascot_render_server, PREVIEW_MOUTH_FLAP_FPS,
 };
 use mascot_render_protocol::{
     ChangeCharacterRequest, MotionTimelineKind, MotionTimelineRequest, MotionTimelineStep,
+    ServerEnsembleMode, VptEnsembleRequest,
 };
 
 use crate::tag;
@@ -43,8 +45,6 @@ pub(crate) use self::overlay::{
 const MIN_DURATION_MS: u64 = 100;
 const FALLBACK_DURATION_MS: u64 = 5_000;
 const DATA_ROOT_ENV: &str = "MASCOT_RENDER_SERVER_DATA_ROOT";
-const MASCOT_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
-const MASCOT_IO_TIMEOUT: Duration = Duration::from_secs(2);
 #[cfg(test)]
 const OVERLAY_DURATION: std::time::Duration = std::time::Duration::from_secs(5);
 
@@ -53,11 +53,32 @@ struct MascotPsdAvailability {
     normalized_file_names: Vec<String>,
 }
 
+#[derive(Debug, Default)]
+struct VptEnsembleSessionState {
+    startup_mode: Option<ServerEnsembleMode>,
+    active: bool,
+    restore_single_character_on_exit: bool,
+}
+
+pub(crate) struct MascotEnsembleSessionGuard;
+
+impl MascotEnsembleSessionGuard {
+    pub(crate) fn new() -> Self {
+        Self
+    }
+}
+
+impl Drop for MascotEnsembleSessionGuard {
+    fn drop(&mut self) {
+        restore_vpt_ensemble_session_on_exit();
+    }
+}
+
 pub fn sync_playback(line: &str, wav: &[u8]) {
     if line.trim().is_empty() || wav.is_empty() {
         return;
     }
-    if is_startup_in_progress() {
+    if is_startup_in_progress() || is_vpt_ensemble_startup_in_progress() {
         return;
     }
 
@@ -151,6 +172,19 @@ pub(crate) fn speaker_has_psd(speaker: &str) -> bool {
         .any(|file_name| file_name.contains(&normalized_speaker))
 }
 
+fn vpt_ensemble_character_names() -> Vec<String> {
+    let Some(table) = crate::speakers::try_get() else {
+        return Vec::new();
+    };
+
+    table
+        .char_names
+        .iter()
+        .filter(|name| speaker_has_psd(name))
+        .cloned()
+        .collect()
+}
+
 fn normalize_mascot_lookup_text(text: &str) -> String {
     trim_psd_extension(text.trim())
         .chars()
@@ -241,12 +275,45 @@ fn startup_in_progress_flag() -> &'static AtomicBool {
     FLAG.get_or_init(|| AtomicBool::new(false))
 }
 
+fn vpt_ensemble_startup_in_progress_flag() -> &'static AtomicBool {
+    static FLAG: OnceLock<AtomicBool> = OnceLock::new();
+    FLAG.get_or_init(|| AtomicBool::new(false))
+}
+
 fn is_startup_in_progress() -> bool {
     startup_in_progress_flag().load(Ordering::Relaxed)
 }
 
+fn is_vpt_ensemble_startup_in_progress() -> bool {
+    vpt_ensemble_startup_in_progress_flag().load(Ordering::Relaxed)
+}
+
 pub(crate) fn set_startup_in_progress(in_progress: bool) {
     startup_in_progress_flag().store(in_progress, Ordering::Relaxed);
+}
+
+fn set_vpt_ensemble_startup_in_progress(in_progress: bool) {
+    vpt_ensemble_startup_in_progress_flag().store(in_progress, Ordering::Relaxed);
+}
+
+fn vpt_ensemble_session_state() -> &'static Mutex<VptEnsembleSessionState> {
+    static STATE: OnceLock<Mutex<VptEnsembleSessionState>> = OnceLock::new();
+    STATE.get_or_init(|| Mutex::new(VptEnsembleSessionState::default()))
+}
+
+#[cfg(test)]
+fn set_vpt_ensemble_session_active(active: bool) {
+    vpt_ensemble_session_state()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .active = active;
+}
+
+fn vpt_ensemble_session_active() -> bool {
+    vpt_ensemble_session_state()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .active
 }
 
 fn snapshot_logging_enabled_flag() -> &'static AtomicBool {
@@ -284,6 +351,126 @@ fn snapshot_logging_enabled() -> bool {
     snapshot_logging_enabled_flag().load(Ordering::Relaxed)
 }
 
+pub(crate) async fn prepare_vpt_ensemble_startup() {
+    set_vpt_ensemble_startup_in_progress(true);
+    let wait_started_at = Instant::now();
+    while is_startup_in_progress() {
+        if wait_started_at.elapsed() >= Duration::from_secs(60) {
+            set_vpt_ensemble_startup_in_progress(false);
+            crate::runtime_notice::set_runtime_notice(
+                "[mascot-render] vpt ensemble 準備をスキップしました: mascot startup timeout",
+            );
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    let result = tokio::task::spawn_blocking(configure_vpt_ensemble_startup)
+        .await
+        .map_err(|error| anyhow::anyhow!("mascot vpt ensemble startup task failed: {error}"))
+        .and_then(|result| result);
+    set_vpt_ensemble_startup_in_progress(false);
+
+    if let Err(error) = result {
+        crate::runtime_notice::set_runtime_notice(format!(
+            "[mascot-render] vpt ensemble 準備をスキップしました: {error}"
+        ));
+    }
+}
+
+fn configure_vpt_ensemble_startup() -> anyhow::Result<()> {
+    if mascot_render_server_healthcheck().is_err() {
+        return Ok(());
+    }
+
+    let status = mascot_render_server_status()?;
+    configure_vpt_ensemble_startup_for_mode(status.ensemble_mode, |character_names| {
+        set_vpt_ensemble_mascot_render_server(character_names)
+    })
+}
+
+fn configure_vpt_ensemble_startup_for_mode<F>(
+    startup_mode: ServerEnsembleMode,
+    set_vpt_ensemble: F,
+) -> anyhow::Result<()>
+where
+    F: FnOnce(&[String]) -> anyhow::Result<()>,
+{
+    {
+        let mut state = vpt_ensemble_session_state()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        state.startup_mode = Some(startup_mode);
+        state.active = matches!(startup_mode, ServerEnsembleMode::Vpt);
+        state.restore_single_character_on_exit = false;
+    }
+
+    if startup_mode != ServerEnsembleMode::Favorite {
+        return Ok(());
+    }
+
+    let character_names = vpt_ensemble_character_names();
+    if character_names.is_empty() {
+        bail!("vpt ensemble に使える mascot PSD 付き speaker がありません");
+    }
+
+    let address = mascot_render_server_address();
+    let request_body = VptEnsembleRequest {
+        character_names: character_names.clone(),
+    };
+    let request = format_mascot_json_request("POST", "/vpt-ensemble", address, &request_body);
+    let result = set_vpt_ensemble(&character_names);
+    if let Err(error) = log_mascot_request_result("vpt ensemble切替", address, &request, &result)
+    {
+        report_mascot_log_failure(&error);
+    }
+    result?;
+
+    let mut state = vpt_ensemble_session_state()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    state.active = true;
+    state.restore_single_character_on_exit = true;
+    Ok(())
+}
+
+fn restore_vpt_ensemble_session_on_exit() {
+    restore_vpt_ensemble_session_on_exit_with(set_single_character_mode_mascot_render_server);
+}
+
+fn restore_vpt_ensemble_session_on_exit_with<F>(set_single_character_mode: F) -> bool
+where
+    F: FnOnce() -> anyhow::Result<()>,
+{
+    let should_restore = {
+        let mut state = vpt_ensemble_session_state()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let should_restore = state.restore_single_character_on_exit;
+        state.restore_single_character_on_exit = false;
+        state.active = false;
+        should_restore
+    };
+    if !should_restore {
+        return false;
+    }
+
+    let address = mascot_render_server_address();
+    let request = format_mascot_request("POST", "/ensemble-mode/single-character", address, None);
+    let result = set_single_character_mode();
+    if let Err(error) =
+        log_mascot_request_result("single character mode復元", address, &request, &result)
+    {
+        report_mascot_log_failure(&error);
+    }
+    if let Err(error) = result {
+        crate::runtime_notice::set_runtime_notice(format!(
+            "[mascot-render] 終了時の ensemble mode 復元に失敗しました: {error}"
+        ));
+    }
+    true
+}
+
 fn next_mascot_sync_id() -> u64 {
     static NEXT_SYNC_ID: AtomicU64 = AtomicU64::new(1);
     NEXT_SYNC_ID.fetch_add(1, Ordering::Relaxed)
@@ -294,21 +481,29 @@ fn sync_character_change<F>(address: SocketAddr, speaker: Option<&str>, change_c
 where
     F: FnOnce(&str) -> anyhow::Result<()>,
 {
-    sync_character_change_with_context(None, None, address, speaker, || Ok(()), change_character)
+    sync_character_change_with_context(None, None, address, speaker, change_character)
 }
 
-fn sync_character_change_with_context<D, F>(
+fn sync_character_change_with_context<F>(
     sync_id: Option<u64>,
     sync_started_at: Option<Instant>,
     address: SocketAddr,
     speaker: Option<&str>,
-    disable_favorite_ensemble: D,
     change_character: F,
 ) -> bool
 where
-    D: FnOnce() -> anyhow::Result<()>,
     F: FnOnce(&str) -> anyhow::Result<()>,
 {
+    if vpt_ensemble_session_active() {
+        if let Some(sync_id) = sync_id {
+            let details =
+                event_details_with_elapsed(sync_started_at, "reason=vpt_ensemble_session_active");
+            log_playback_event(sync_id, "change-character", "request_skipped", &details);
+        }
+        clear_overlay_message();
+        return true;
+    }
+
     let Some(speaker) = speaker else {
         if let Some(sync_id) = sync_id {
             let details = event_details_with_elapsed(sync_started_at, "reason=no_character");
@@ -330,71 +525,6 @@ where
     }
 
     clear_overlay_message();
-    let disable_request =
-        format_mascot_request("POST", "/favorite-ensemble/disable", address, None);
-    if let Some(sync_id) = sync_id {
-        log_playback_snapshots(
-            sync_id,
-            "favorite-ensemble-disable",
-            "before",
-            address,
-            sync_started_at,
-        );
-        log_playback_request_start(
-            sync_id,
-            "favorite-ensemble-disable",
-            "favorite ensemble無効化",
-            address,
-            sync_started_at,
-        );
-    }
-    let disable_started_at = Instant::now();
-    let disable_result = disable_favorite_ensemble();
-    let disable_duration = disable_started_at.elapsed();
-    let disable_log_result = if let Some(sync_id) = sync_id {
-        log_mascot_sync_request_result_timed(
-            MascotSyncRequestContext {
-                sync_id,
-                phase: "favorite-ensemble-disable",
-                action: "favorite ensemble無効化",
-                address,
-                sync_started_at,
-            },
-            &disable_request,
-            &disable_result,
-            disable_duration,
-        )
-    } else {
-        log_mascot_request_result(
-            "favorite ensemble無効化",
-            address,
-            &disable_request,
-            &disable_result,
-        )
-    };
-    if let Err(error) = disable_log_result {
-        report_mascot_log_failure(&error);
-    }
-    if let Some(sync_id) = sync_id {
-        log_playback_error_snapshots(
-            sync_id,
-            "favorite-ensemble-disable",
-            address,
-            sync_started_at,
-            &disable_result,
-        );
-        log_playback_snapshots(
-            sync_id,
-            "favorite-ensemble-disable",
-            "after",
-            address,
-            sync_started_at,
-        );
-    }
-    if disable_result.is_err() {
-        return false;
-    }
-
     let request_body = ChangeCharacterRequest {
         character_name: speaker.to_string(),
     };
@@ -510,7 +640,6 @@ fn handle_playback_sync(sync: MascotPlaybackSync, worker_received_at: Instant) {
         Some(sync_started_at),
         address,
         sync.char_name.as_deref(),
-        || disable_favorite_ensemble_mascot_render_server_at(address),
         change_character_mascot_render_server,
     ) {
         let elapsed_ms = sync_started_at.elapsed().as_millis();
@@ -664,91 +793,6 @@ fn motion_timeline_request(duration_ms: u64) -> MotionTimelineRequest {
     request
 }
 
-fn disable_favorite_ensemble_mascot_render_server_at(address: SocketAddr) -> anyhow::Result<()> {
-    post_empty_mascot_request(address, "/favorite-ensemble/disable")
-}
-
-fn post_empty_mascot_request(address: SocketAddr, path: &str) -> anyhow::Result<()> {
-    let mut stream = std::net::TcpStream::connect_timeout(&address, MASCOT_CONNECT_TIMEOUT)
-        .with_context(|| format!("failed to connect to mascot-render-server at {address}"))?;
-    stream
-        .set_read_timeout(Some(MASCOT_IO_TIMEOUT))
-        .with_context(|| format!("failed to set read timeout for {address}"))?;
-    stream
-        .set_write_timeout(Some(MASCOT_IO_TIMEOUT))
-        .with_context(|| format!("failed to set write timeout for {address}"))?;
-
-    let request = format!(
-        "POST {path} HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
-    );
-    stream
-        .write_all(request.as_bytes())
-        .with_context(|| format!("failed to write HTTP request to {address}"))?;
-    stream
-        .flush()
-        .with_context(|| format!("failed to flush HTTP request to {address}"))?;
-
-    read_empty_post_response(&mut stream, path)
-}
-
-fn read_empty_post_response(stream: &mut std::net::TcpStream, path: &str) -> anyhow::Result<()> {
-    let mut reader = BufReader::new(stream);
-    let mut status_line = String::new();
-    reader
-        .read_line(&mut status_line)
-        .context("failed to read HTTP response status line")?;
-    if status_line.trim().is_empty() {
-        bail!("empty HTTP response");
-    }
-
-    let status_code = parse_http_status_code(&status_line)?;
-    let mut content_length = 0usize;
-    let mut header_line = String::new();
-    loop {
-        header_line.clear();
-        reader
-            .read_line(&mut header_line)
-            .context("failed to read HTTP response header")?;
-        if header_line == "\r\n" || header_line == "\n" {
-            break;
-        }
-        if let Some((name, value)) = header_line.split_once(':') {
-            if name.trim().eq_ignore_ascii_case("content-length") {
-                content_length = value
-                    .trim()
-                    .parse::<usize>()
-                    .context("invalid HTTP response Content-Length header")?;
-            }
-        }
-    }
-
-    let mut body = vec![0; content_length];
-    if !body.is_empty() {
-        reader
-            .read_exact(&mut body)
-            .context("failed to read HTTP response body")?;
-    }
-
-    if (200..300).contains(&status_code) {
-        return Ok(());
-    }
-
-    bail!(
-        "mascot-render-server request {path} failed with HTTP {}: {}",
-        status_code,
-        String::from_utf8_lossy(&body).trim()
-    )
-}
-
-fn parse_http_status_code(status_line: &str) -> anyhow::Result<u16> {
-    status_line
-        .split_whitespace()
-        .nth(1)
-        .ok_or_else(|| anyhow::anyhow!("missing HTTP status code"))?
-        .parse::<u16>()
-        .context("invalid HTTP status code")
-}
-
 #[cfg(test)]
 pub(crate) fn with_overlay_state_lock<T>(f: impl FnOnce() -> T) -> T {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -762,6 +806,10 @@ pub(crate) fn with_overlay_state_lock<T>(f: impl FnOnce() -> T) -> T {
     clear_startup_overlay_message();
     set_snapshot_logging_enabled(false);
     set_loaded_psd_file_names(Vec::new());
+    set_vpt_ensemble_startup_in_progress(false);
+    *vpt_ensemble_session_state()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner()) = VptEnsembleSessionState::default();
     let result = f();
     set_startup_in_progress(false);
     dismiss_blocking_overlay_message();
@@ -769,6 +817,10 @@ pub(crate) fn with_overlay_state_lock<T>(f: impl FnOnce() -> T) -> T {
     clear_startup_overlay_message();
     set_snapshot_logging_enabled(false);
     set_loaded_psd_file_names(Vec::new());
+    set_vpt_ensemble_startup_in_progress(false);
+    *vpt_ensemble_session_state()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner()) = VptEnsembleSessionState::default();
     result
 }
 

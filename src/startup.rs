@@ -55,6 +55,12 @@ pub fn spawn_runtime_loader(
         let speakers_result = crate::speakers::load(base_urls)
             .await
             .context("speaker load failed");
+        if speakers_result.is_ok() {
+            let _ = tx.send(RuntimeStartupEvent::Status(String::from(
+                "[startup] preparing mascot ensemble...",
+            )));
+            crate::mascot_render::prepare_vpt_ensemble_startup().await;
+        }
         let _ = tx.send(RuntimeStartupEvent::Ready(speakers_result));
     });
     rx
