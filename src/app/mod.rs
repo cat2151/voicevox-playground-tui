@@ -14,7 +14,7 @@ pub use help::{HelpAction, HELP_ENTRIES};
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -55,6 +55,8 @@ pub type LineIntonations = Vec<Option<IntonationLineData>>;
 pub type AllTabLines = Vec<Vec<String>>;
 pub type AllTabIntonations = Vec<LineIntonations>;
 pub type TabSlot = (Vec<String>, LineIntonations, usize, bool);
+
+const VPT_ENSEMBLE_MEMBERS_SYNC_DEBOUNCE: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpeakerStyleFocus {
@@ -105,6 +107,10 @@ pub struct App {
     pub is_fetching: IsFetching,
     /// バックグラウンドprefetchタスクのハンドル（カーソル移動時にキャンセル）
     bg_prefetch_handle: Option<JoinHandle<()>>,
+    /// vpt ensemble members更新を遅延送信する期限。
+    vpt_ensemble_members_sync_due: Option<Instant>,
+    /// debounce満了時に送るactive tab本文スナップショット。
+    vpt_ensemble_members_sync_lines: Option<Vec<String>>,
     /// NormalモードでESCを押した際に"q:quit"ヒントをハイライト表示する期限
     pub esc_hint_until: Option<Instant>,
     /// 最後にオートセーブを実行した時刻
@@ -201,6 +207,8 @@ impl App {
             folded: false,
             is_fetching,
             bg_prefetch_handle: None,
+            vpt_ensemble_members_sync_due: None,
+            vpt_ensemble_members_sync_lines: None,
             esc_hint_until: None,
             last_autosave: Instant::now(),
             focused: true,
@@ -232,6 +240,32 @@ impl App {
         let idx = self.cursor;
         self.fetch_and_play(idx).await;
         self.restart_background_prefetch();
+    }
+
+    pub(crate) async fn sync_vpt_ensemble_members_if_debounced(&mut self) {
+        let Some(due) = self.vpt_ensemble_members_sync_due else {
+            return;
+        };
+        if Instant::now() < due {
+            return;
+        }
+
+        self.vpt_ensemble_members_sync_due = None;
+        let lines = self
+            .vpt_ensemble_members_sync_lines
+            .take()
+            .unwrap_or_else(|| self.lines.clone());
+        crate::mascot_render::sync_vpt_ensemble_members(lines).await;
+    }
+
+    fn schedule_vpt_ensemble_members_sync(&mut self) {
+        self.schedule_vpt_ensemble_members_sync_for_lines(self.lines.clone());
+    }
+
+    fn schedule_vpt_ensemble_members_sync_for_lines(&mut self, lines: Vec<String>) {
+        self.vpt_ensemble_members_sync_due =
+            Some(Instant::now() + VPT_ENSEMBLE_MEMBERS_SYNC_DEBOUNCE);
+        self.vpt_ensemble_members_sync_lines = Some(lines);
     }
 
     // ── 共通ヘルパー ──────────────────────────────────────────────────────────

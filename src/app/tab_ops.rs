@@ -57,6 +57,7 @@ impl App {
         self.line_intonations = vec![None];
         self.cursor = 0;
         self.folded = false;
+        self.schedule_vpt_ensemble_members_sync();
         self.restart_background_prefetch();
     }
 
@@ -76,6 +77,7 @@ impl App {
         self.folded = self.tabs[self.active_tab].3;
         // 折りたたみ状態を復元した場合、カーソルが非表示行にある可能性を修正
         self.normalize_cursor_for_fold();
+        self.schedule_vpt_ensemble_members_sync();
         self.restart_background_prefetch();
     }
 
@@ -99,6 +101,7 @@ impl App {
         self.folded = self.tabs[self.active_tab].3;
         // 折りたたみ状態を復元した場合、カーソルが非表示行にある可能性を修正
         self.normalize_cursor_for_fold();
+        self.schedule_vpt_ensemble_members_sync();
         self.restart_background_prefetch();
     }
 
@@ -117,6 +120,7 @@ impl App {
         self.cursor = self.tabs[self.active_tab].2;
         self.folded = self.tabs[self.active_tab].3;
         self.normalize_cursor_for_fold();
+        self.schedule_vpt_ensemble_members_sync();
         self.restart_background_prefetch();
     }
 

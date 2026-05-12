@@ -63,17 +63,20 @@ pub(crate) fn speaker_has_psd(speaker: &str) -> bool {
         .any(|file_name| file_name.contains(&normalized_speaker))
 }
 
-pub(super) fn vpt_ensemble_character_names() -> Vec<String> {
-    let Some(table) = crate::speakers::try_get() else {
+pub(super) fn vpt_ensemble_character_names(lines: &[String]) -> Vec<String> {
+    if crate::speakers::try_get().is_none() {
         return Vec::new();
-    };
+    }
 
-    table
-        .char_names
-        .iter()
-        .filter(|name| speaker_has_psd(name))
-        .cloned()
-        .collect()
+    let mut names = Vec::new();
+    for line in lines {
+        for (_, ctx) in tag::parse_line(line) {
+            if speaker_has_psd(&ctx.char_name) && !names.contains(&ctx.char_name) {
+                names.push(ctx.char_name);
+            }
+        }
+    }
+    names
 }
 
 fn normalize_mascot_lookup_text(text: &str) -> String {

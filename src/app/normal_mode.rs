@@ -71,6 +71,7 @@ impl App {
             self.lines = vec![String::new()];
             self.line_intonations = vec![None];
             self.cursor = 0;
+            self.schedule_vpt_ensemble_members_sync();
             return;
         }
         self.lines.remove(self.cursor);
@@ -78,6 +79,7 @@ impl App {
         if self.cursor >= self.lines.len() {
             self.cursor = self.lines.len() - 1;
         }
+        self.schedule_vpt_ensemble_members_sync();
         self.fetch_and_play(self.cursor).await;
         self.restart_background_prefetch();
     }
@@ -93,6 +95,7 @@ impl App {
         self.cursor += 1;
         // 折りたたみ時、カーソルが非表示行（行頭space）になる場合は最も近い表示行へ移動する
         self.normalize_cursor_for_fold();
+        self.schedule_vpt_ensemble_members_sync();
         self.fetch_and_play(self.cursor).await;
         self.restart_background_prefetch();
     }
@@ -107,6 +110,7 @@ impl App {
         self.line_intonations.insert(self.cursor, None);
         // 折りたたみ時、カーソルが非表示行（行頭space）になる場合は最も近い表示行へ移動する
         self.normalize_cursor_for_fold();
+        self.schedule_vpt_ensemble_members_sync();
         self.fetch_and_play(self.cursor).await;
         self.restart_background_prefetch();
     }
@@ -131,6 +135,7 @@ impl App {
         self.line_intonations.extend(tail_intonations);
         self.cursor = insert_pos;
         self.normalize_cursor_for_fold();
+        self.schedule_vpt_ensemble_members_sync();
         self.fetch_and_play(self.cursor).await;
         self.restart_background_prefetch();
     }
@@ -153,6 +158,7 @@ impl App {
         self.lines.extend(tail);
         self.line_intonations.extend(tail_intonations);
         self.normalize_cursor_for_fold();
+        self.schedule_vpt_ensemble_members_sync();
         self.fetch_and_play(self.cursor).await;
         self.restart_background_prefetch();
     }

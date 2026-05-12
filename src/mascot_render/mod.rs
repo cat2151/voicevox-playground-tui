@@ -1,3 +1,4 @@
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::SocketAddr;
 use std::sync::mpsc::{self, Sender};
 #[cfg(test)]
@@ -6,21 +7,19 @@ use std::sync::OnceLock;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use anyhow::bail;
+use anyhow::{bail, Context};
 use mascot_render_client::{
     change_character_mascot_render_server, mascot_render_server_address,
     mascot_render_server_healthcheck, mascot_render_server_status,
-    play_timeline_mascot_render_server, preview_mouth_flap_timeline_request,
-    set_single_character_mode_mascot_render_server, set_vpt_ensemble_mascot_render_server,
-    show_mascot_render_server, PREVIEW_MOUTH_FLAP_FPS,
+    preview_mouth_flap_timeline_request, set_single_character_mode_mascot_render_server,
+    set_vpt_ensemble_mascot_render_server, show_mascot_render_server, PREVIEW_MOUTH_FLAP_FPS,
 };
 use mascot_render_protocol::{
-    ChangeCharacterRequest, MotionTimelineKind, MotionTimelineRequest, MotionTimelineStep,
-    ServerEnsembleMode, VptEnsembleRequest,
+    validate_motion_timeline_request, ChangeCharacterRequest, MotionTimelineKind,
+    MotionTimelineRequest, MotionTimelineStep, ServerEnsembleMode, VptEnsembleRequest,
 };
 
 mod data;
-mod http;
 mod logging;
 mod overlay;
 mod playback_logging;
@@ -34,7 +33,6 @@ pub(crate) use self::data::{
     init_data_root_env, refresh_available_psd_file_names_from_server, speaker_has_psd,
 };
 use self::data::{mascot_char_name_for_line, vpt_ensemble_character_names, wav_duration_ms};
-pub(crate) use self::http::disable_favorite_ensemble_mascot_render_server_at;
 #[cfg(test)]
 use self::logging::{current_log_timestamp, format_mascot_log_message, mascot_log_path};
 use self::logging::{
@@ -68,6 +66,9 @@ use self::state::{
 
 const MIN_DURATION_MS: u64 = 100;
 const FALLBACK_DURATION_MS: u64 = 5_000;
+const MASCOT_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+const MASCOT_IO_TIMEOUT: Duration = Duration::from_secs(2);
+const MASCOT_APPLY_TIMEOUT: Duration = Duration::from_secs(15);
 const DATA_ROOT_ENV: &str = "MASCOT_RENDER_SERVER_DATA_ROOT";
 #[cfg(test)]
 const OVERLAY_DURATION: std::time::Duration = std::time::Duration::from_secs(5);
@@ -157,7 +158,7 @@ fn mascot_worker_tx() -> &'static Sender<MascotPlaybackSync> {
     })
 }
 
-pub(crate) async fn prepare_vpt_ensemble_startup() {
+pub(crate) async fn prepare_vpt_ensemble_startup(lines: Vec<String>) {
     set_vpt_ensemble_startup_in_progress(true);
     let wait_started_at = Instant::now();
     while is_startup_in_progress() {
@@ -171,7 +172,7 @@ pub(crate) async fn prepare_vpt_ensemble_startup() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
-    let result = tokio::task::spawn_blocking(configure_vpt_ensemble_startup)
+    let result = tokio::task::spawn_blocking(move || configure_vpt_ensemble_startup(&lines))
         .await
         .map_err(|error| anyhow::anyhow!("mascot vpt ensemble startup task failed: {error}"))
         .and_then(|result| result);
@@ -184,22 +185,45 @@ pub(crate) async fn prepare_vpt_ensemble_startup() {
     }
 }
 
-fn configure_vpt_ensemble_startup() -> anyhow::Result<()> {
+fn configure_vpt_ensemble_startup(lines: &[String]) -> anyhow::Result<()> {
     if mascot_render_server_healthcheck().is_err() {
         return Ok(());
     }
 
     let status = mascot_render_server_status()?;
-    configure_vpt_ensemble_startup_for_mode(status.ensemble_mode, |character_names| {
-        set_vpt_ensemble_mascot_render_server(character_names)
-    })
+    configure_vpt_ensemble_startup_for_mode_with_members(
+        status.ensemble_mode,
+        lines,
+        set_vpt_ensemble_members_mascot_render_server,
+        set_vpt_ensemble_mascot_render_server,
+    )
 }
 
+#[cfg(test)]
 fn configure_vpt_ensemble_startup_for_mode<F>(
     startup_mode: ServerEnsembleMode,
+    lines: &[String],
     set_vpt_ensemble: F,
 ) -> anyhow::Result<()>
 where
+    F: FnOnce(&[String]) -> anyhow::Result<()>,
+{
+    configure_vpt_ensemble_startup_for_mode_with_members(
+        startup_mode,
+        lines,
+        |_| Ok(()),
+        set_vpt_ensemble,
+    )
+}
+
+fn configure_vpt_ensemble_startup_for_mode_with_members<M, F>(
+    startup_mode: ServerEnsembleMode,
+    lines: &[String],
+    set_vpt_ensemble_members: M,
+    set_vpt_ensemble: F,
+) -> anyhow::Result<()>
+where
+    M: FnOnce(&[String]) -> anyhow::Result<()>,
     F: FnOnce(&[String]) -> anyhow::Result<()>,
 {
     {
@@ -211,13 +235,18 @@ where
         state.restore_single_character_on_exit = false;
     }
 
-    if startup_mode != ServerEnsembleMode::Favorite {
+    let character_names = vpt_ensemble_character_names(lines);
+    update_vpt_ensemble_members(&character_names, set_vpt_ensemble_members);
+
+    if !matches!(
+        startup_mode,
+        ServerEnsembleMode::Favorite | ServerEnsembleMode::Vpt
+    ) {
         return Ok(());
     }
 
-    let character_names = vpt_ensemble_character_names();
     if character_names.is_empty() {
-        bail!("vpt ensemble に使える mascot PSD 付き speaker がありません");
+        bail!("vpt ensemble に使える mascot PSD 付き本文speakerがありません");
     }
 
     let address = mascot_render_server_address();
@@ -236,8 +265,74 @@ where
         .lock()
         .unwrap_or_else(|error| error.into_inner());
     state.active = true;
-    state.restore_single_character_on_exit = true;
+    state.restore_single_character_on_exit = startup_mode == ServerEnsembleMode::Favorite;
     Ok(())
+}
+
+fn update_vpt_ensemble_members<F>(character_names: &[String], set_vpt_ensemble_members: F)
+where
+    F: FnOnce(&[String]) -> anyhow::Result<()>,
+{
+    let address = mascot_render_server_address();
+    let request_body = VptEnsembleRequest {
+        character_names: character_names.to_vec(),
+    };
+    let request =
+        format_mascot_json_request("POST", "/vpt-ensemble/members", address, &request_body);
+    let result = set_vpt_ensemble_members(character_names);
+    if let Err(error) =
+        log_mascot_request_result("vpt ensemble members更新", address, &request, &result)
+    {
+        report_mascot_log_failure(&error);
+    }
+    if let Err(error) = result {
+        crate::runtime_notice::set_runtime_notice(format!(
+            "[mascot-render] vpt ensemble members更新に失敗しました: {error}"
+        ));
+    }
+}
+
+pub(crate) async fn sync_vpt_ensemble_members(lines: Vec<String>) {
+    if is_startup_in_progress() || is_vpt_ensemble_startup_in_progress() {
+        return;
+    }
+
+    let result = tokio::task::spawn_blocking(move || configure_vpt_ensemble_members(&lines))
+        .await
+        .map_err(|error| anyhow::anyhow!("mascot vpt ensemble members sync task failed: {error}"))
+        .and_then(|result| result);
+
+    if let Err(error) = result {
+        crate::runtime_notice::set_runtime_notice(format!(
+            "[mascot-render] vpt ensemble members更新をスキップしました: {error}"
+        ));
+    }
+}
+
+fn configure_vpt_ensemble_members(lines: &[String]) -> anyhow::Result<()> {
+    if mascot_render_server_healthcheck().is_err() {
+        return Ok(());
+    }
+
+    let character_names = vpt_ensemble_character_names(lines);
+    update_vpt_ensemble_members(
+        &character_names,
+        set_vpt_ensemble_members_mascot_render_server,
+    );
+    Ok(())
+}
+
+fn set_vpt_ensemble_members_mascot_render_server(character_names: &[String]) -> anyhow::Result<()> {
+    let body = serde_json::to_vec(&VptEnsembleRequest {
+        character_names: character_names.to_vec(),
+    })
+    .context("failed to serialize mascot vpt ensemble members request")?;
+    post_mascot_json_request(
+        mascot_render_server_address(),
+        "/vpt-ensemble/members",
+        &body,
+        MASCOT_APPLY_TIMEOUT,
+    )
 }
 
 fn restore_vpt_ensemble_session_on_exit() {
@@ -285,7 +380,6 @@ where
     sync_character_change_with_context(None, None, address, speaker, change_character)
 }
 
-#[cfg(test)]
 fn sync_character_change_with_context<F>(
     sync_id: Option<u64>,
     sync_started_at: Option<Instant>,
@@ -294,50 +388,6 @@ fn sync_character_change_with_context<F>(
     change_character: F,
 ) -> bool
 where
-    F: FnOnce(&str) -> anyhow::Result<()>,
-{
-    sync_character_change_inner(
-        sync_id,
-        sync_started_at,
-        address,
-        speaker,
-        None::<fn() -> anyhow::Result<()>>,
-        change_character,
-    )
-}
-
-fn sync_character_change_with_favorite_disable<D, F>(
-    sync_id: Option<u64>,
-    sync_started_at: Option<Instant>,
-    address: SocketAddr,
-    speaker: Option<&str>,
-    disable_favorite_ensemble: D,
-    change_character: F,
-) -> bool
-where
-    D: FnOnce() -> anyhow::Result<()>,
-    F: FnOnce(&str) -> anyhow::Result<()>,
-{
-    sync_character_change_inner(
-        sync_id,
-        sync_started_at,
-        address,
-        speaker,
-        Some(disable_favorite_ensemble),
-        change_character,
-    )
-}
-
-fn sync_character_change_inner<D, F>(
-    sync_id: Option<u64>,
-    sync_started_at: Option<Instant>,
-    address: SocketAddr,
-    speaker: Option<&str>,
-    disable_favorite_ensemble: Option<D>,
-    change_character: F,
-) -> bool
-where
-    D: FnOnce() -> anyhow::Result<()>,
     F: FnOnce(&str) -> anyhow::Result<()>,
 {
     if vpt_ensemble_session_active() {
@@ -371,73 +421,6 @@ where
     }
 
     clear_overlay_message();
-    if let Some(disable_favorite_ensemble) = disable_favorite_ensemble {
-        let disable_request =
-            format_mascot_request("POST", "/favorite-ensemble/disable", address, None);
-        if let Some(sync_id) = sync_id {
-            log_playback_snapshots(
-                sync_id,
-                "favorite-ensemble-disable",
-                "before",
-                address,
-                sync_started_at,
-            );
-            log_playback_request_start(
-                sync_id,
-                "favorite-ensemble-disable",
-                "favorite ensemble無効化",
-                address,
-                sync_started_at,
-            );
-        }
-        let disable_started_at = Instant::now();
-        let disable_result = disable_favorite_ensemble();
-        let disable_duration = disable_started_at.elapsed();
-        let disable_log_result = if let Some(sync_id) = sync_id {
-            log_mascot_sync_request_result_timed(
-                MascotSyncRequestContext {
-                    sync_id,
-                    phase: "favorite-ensemble-disable",
-                    action: "favorite ensemble無効化",
-                    address,
-                    sync_started_at,
-                },
-                &disable_request,
-                &disable_result,
-                disable_duration,
-            )
-        } else {
-            log_mascot_request_result(
-                "favorite ensemble無効化",
-                address,
-                &disable_request,
-                &disable_result,
-            )
-        };
-        if let Err(error) = disable_log_result {
-            report_mascot_log_failure(&error);
-        }
-        if let Some(sync_id) = sync_id {
-            log_playback_error_snapshots(
-                sync_id,
-                "favorite-ensemble-disable",
-                address,
-                sync_started_at,
-                &disable_result,
-            );
-            log_playback_snapshots(
-                sync_id,
-                "favorite-ensemble-disable",
-                "after",
-                address,
-                sync_started_at,
-            );
-        }
-        if disable_result.is_err() {
-            return false;
-        }
-    }
-
     let request_body = ChangeCharacterRequest {
         character_name: speaker.to_string(),
     };
@@ -548,12 +531,11 @@ fn handle_playback_sync(sync: MascotPlaybackSync, worker_received_at: Instant) {
     );
     log_playback_snapshots(sync_id, "show", "after", address, Some(sync_started_at));
 
-    if !sync_character_change_with_favorite_disable(
+    if !sync_character_change_with_context(
         Some(sync_id),
         Some(sync_started_at),
         address,
         sync.char_name.as_deref(),
-        || disable_favorite_ensemble_mascot_render_server_at(address),
         change_character_mascot_render_server,
     ) {
         let elapsed_ms = sync_started_at.elapsed().as_millis();
@@ -570,7 +552,9 @@ fn handle_playback_sync(sync: MascotPlaybackSync, worker_received_at: Instant) {
     }
 
     let request = motion_timeline_request(sync.duration_ms);
-    let request_log = format_mascot_json_request("POST", "/timeline", address, &request);
+    let target_character_name = sync.char_name.as_deref();
+    let request_body = motion_timeline_request_body(&request, target_character_name);
+    let request_log = format_mascot_json_request("POST", "/timeline", address, &request_body);
     let action = sync
         .char_name
         .as_deref()
@@ -585,7 +569,8 @@ fn handle_playback_sync(sync: MascotPlaybackSync, worker_received_at: Instant) {
     );
     log_playback_request_start(sync_id, "timeline", &action, address, Some(sync_started_at));
     let timeline_started_at = Instant::now();
-    let timeline_result = play_timeline_mascot_render_server(&request);
+    let timeline_result =
+        play_timeline_mascot_render_server_with_target(address, &request, target_character_name);
     let timeline_duration = timeline_started_at.elapsed();
     if let Err(error) = log_mascot_sync_request_result_timed(
         MascotSyncRequestContext {
@@ -619,6 +604,131 @@ fn handle_playback_sync(sync: MascotPlaybackSync, worker_received_at: Instant) {
             elapsed_ms, elapsed_ms
         ),
     );
+}
+
+#[derive(serde::Serialize)]
+struct MotionTimelineRequestBody<'a> {
+    steps: &'a [MotionTimelineStep],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target_character_name: Option<&'a str>,
+}
+
+fn motion_timeline_request_body<'a>(
+    request: &'a MotionTimelineRequest,
+    target_character_name: Option<&'a str>,
+) -> MotionTimelineRequestBody<'a> {
+    MotionTimelineRequestBody {
+        steps: &request.steps,
+        target_character_name,
+    }
+}
+
+fn play_timeline_mascot_render_server_with_target(
+    address: SocketAddr,
+    request: &MotionTimelineRequest,
+    target_character_name: Option<&str>,
+) -> anyhow::Result<()> {
+    validate_motion_timeline_request(request)?;
+    let body = serde_json::to_vec(&motion_timeline_request_body(
+        request,
+        target_character_name,
+    ))
+    .context("failed to serialize mascot motion timeline request")?;
+    post_mascot_json_request(address, "/timeline", &body, MASCOT_APPLY_TIMEOUT)
+}
+
+fn post_mascot_json_request(
+    address: SocketAddr,
+    path: &str,
+    body: &[u8],
+    read_timeout: Duration,
+) -> anyhow::Result<()> {
+    let mut stream = std::net::TcpStream::connect_timeout(&address, MASCOT_CONNECT_TIMEOUT)
+        .with_context(|| format!("failed to connect to mascot-render-server at {address}"))?;
+    stream
+        .set_read_timeout(Some(read_timeout))
+        .with_context(|| format!("failed to set read timeout for {address}"))?;
+    stream
+        .set_write_timeout(Some(MASCOT_IO_TIMEOUT))
+        .with_context(|| format!("failed to set write timeout for {address}"))?;
+
+    let host = match address {
+        SocketAddr::V4(address) => format!("{}:{}", address.ip(), address.port()),
+        SocketAddr::V6(address) => format!("[{}]:{}", address.ip(), address.port()),
+    };
+    let request = format!(
+        "POST {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n",
+        body.len()
+    );
+    stream
+        .write_all(request.as_bytes())
+        .with_context(|| format!("failed to write HTTP request to {address}"))?;
+    stream
+        .write_all(body)
+        .with_context(|| format!("failed to write HTTP body to {address}"))?;
+    stream
+        .flush()
+        .with_context(|| format!("failed to flush HTTP request to {address}"))?;
+
+    read_mascot_response(&mut stream, path)
+}
+
+fn read_mascot_response(stream: &mut std::net::TcpStream, path: &str) -> anyhow::Result<()> {
+    let mut reader = BufReader::new(stream);
+    let mut status_line = String::new();
+    reader
+        .read_line(&mut status_line)
+        .context("failed to read HTTP response status line")?;
+    if status_line.trim().is_empty() {
+        bail!("empty HTTP response");
+    }
+
+    let status_code = parse_http_status_code(&status_line)?;
+    let mut content_length = 0usize;
+    let mut header_line = String::new();
+    loop {
+        header_line.clear();
+        reader
+            .read_line(&mut header_line)
+            .context("failed to read HTTP response header")?;
+        if header_line == "\r\n" || header_line == "\n" {
+            break;
+        }
+        if let Some((name, value)) = header_line.split_once(':') {
+            if name.trim().eq_ignore_ascii_case("content-length") {
+                content_length = value
+                    .trim()
+                    .parse::<usize>()
+                    .context("invalid HTTP response Content-Length header")?;
+            }
+        }
+    }
+
+    let mut body = vec![0; content_length];
+    if !body.is_empty() {
+        reader
+            .read_exact(&mut body)
+            .context("failed to read HTTP response body")?;
+    }
+
+    if (200..300).contains(&status_code) {
+        return Ok(());
+    }
+
+    bail!(
+        "mascot-render-server request {path} failed with HTTP {}: {}",
+        status_code,
+        String::from_utf8_lossy(&body).trim()
+    )
+}
+
+fn parse_http_status_code(status_line: &str) -> anyhow::Result<u16> {
+    status_line
+        .split_whitespace()
+        .nth(1)
+        .ok_or_else(|| anyhow::anyhow!("missing HTTP status code"))?
+        .parse::<u16>()
+        .context("invalid HTTP status code")
 }
 
 fn motion_timeline_request(duration_ms: u64) -> MotionTimelineRequest {

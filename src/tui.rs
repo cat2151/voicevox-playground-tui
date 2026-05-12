@@ -71,6 +71,9 @@ pub async fn run(
         if app.mode == Mode::Intonation {
             app.intonation_play_if_debounced().await;
         }
+        if !startup_pending {
+            app.sync_vpt_ensemble_members_if_debounced().await;
+        }
 
         // 1分ごとにオートセーブする
         if !startup_pending && app.last_autosave.elapsed() >= AUTO_SAVE_INTERVAL {
@@ -95,6 +98,9 @@ pub async fn run(
         }
 
         if !history_pending && !runtime_startup_pending && needs_init {
+            app.status_msg = String::from("[startup] preparing mascot ensemble...");
+            terminal.draw(|f| ui::draw(f, app))?;
+            mascot_render::prepare_vpt_ensemble_startup(app.lines.clone()).await;
             app.status_msg = String::from("ready");
             app.init().await;
             needs_init = false;

@@ -104,6 +104,7 @@ impl App {
         if self.cursor >= self.lines.len() {
             self.cursor = self.lines.len().saturating_sub(1);
         }
+        self.schedule_vpt_ensemble_members_sync();
         self.fetch_and_play(self.cursor).await;
         self.restart_background_prefetch();
     }
@@ -113,6 +114,13 @@ impl App {
         let raw = self.textarea.lines().first().cloned().unwrap_or_default();
         // [N]展開後、折りたたみ用の行頭spaceを除いたキーでfetchする
         let text = tag::expand_id_tags(&raw).trim_start().to_owned();
+        let mut lines = self.lines.clone();
+        if self.cursor < lines.len() {
+            let split_lines = tag::split_by_ctx_change(&text);
+            lines.splice(self.cursor..=self.cursor, split_lines);
+            lines = super::utils::compress_trailing_empty(lines);
+            self.schedule_vpt_ensemble_members_sync_for_lines(lines);
+        }
         if text.trim().is_empty() {
             return;
         }

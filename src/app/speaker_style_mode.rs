@@ -220,6 +220,7 @@ impl App {
         if let Some(line) = self.lines.get_mut(self.cursor) {
             *line = new_line;
         }
+        self.schedule_vpt_ensemble_members_sync();
         self.restart_background_prefetch();
         self.status_msg = format!("[speaker/style] {}", tag::ctx_to_explicit_prefix(&ctx));
     }
