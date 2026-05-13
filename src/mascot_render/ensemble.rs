@@ -151,7 +151,6 @@ pub(super) fn restore_vpt_ensemble_session_on_exit() {
     restore_vpt_ensemble_session_on_exit_with(set_single_character_mode_mascot_render_server);
 }
 
-#[cfg(test)]
 pub(super) fn restore_vpt_ensemble_session_on_exit_with<F>(set_single_character_mode: F) -> bool
 where
     F: FnOnce() -> anyhow::Result<()>,
