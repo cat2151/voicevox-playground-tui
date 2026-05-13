@@ -1,4 +1,3 @@
-use std::io::{BufRead, BufReader, Read, Write};
 use std::net::SocketAddr;
 use std::sync::mpsc::{self, Sender};
 #[cfg(test)]
@@ -7,32 +6,40 @@ use std::sync::OnceLock;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use anyhow::{bail, Context};
 use mascot_render_client::{
-    change_character_mascot_render_server, mascot_render_server_address,
-    mascot_render_server_healthcheck, mascot_render_server_status,
-    preview_mouth_flap_timeline_request, set_single_character_mode_mascot_render_server,
-    set_vpt_ensemble_mascot_render_server, show_mascot_render_server, PREVIEW_MOUTH_FLAP_FPS,
+    change_character_mascot_render_server, mascot_render_server_address, show_mascot_render_server,
 };
-use mascot_render_protocol::{
-    validate_motion_timeline_request, ChangeCharacterRequest, MotionTimelineKind,
-    MotionTimelineRequest, MotionTimelineStep, ServerEnsembleMode, VptEnsembleRequest,
-};
+use mascot_render_protocol::ChangeCharacterRequest;
+#[cfg(test)]
+use mascot_render_protocol::ServerEnsembleMode;
 
 mod data;
+mod ensemble;
 mod logging;
 mod overlay;
 mod playback_logging;
+mod requests;
 mod state;
 #[cfg(test)]
 mod test_support;
 
 #[cfg(test)]
+use self::data::vpt_ensemble_character_names;
+#[cfg(test)]
 use self::data::{default_mascot_data_root, mascot_data_root, set_loaded_psd_file_names};
 pub(crate) use self::data::{
     init_data_root_env, refresh_available_psd_file_names_from_server, speaker_has_psd,
 };
-use self::data::{mascot_char_name_for_line, vpt_ensemble_character_names, wav_duration_ms};
+use self::data::{mascot_char_name_for_line, wav_duration_ms};
+use self::ensemble::{
+    configure_vpt_ensemble_members, configure_vpt_ensemble_startup,
+    restore_vpt_ensemble_session_on_exit,
+};
+#[cfg(test)]
+use self::ensemble::{
+    configure_vpt_ensemble_startup_for_mode, configure_vpt_ensemble_startup_for_mode_with_members,
+    restore_vpt_ensemble_session_on_exit_with,
+};
 #[cfg(test)]
 use self::logging::{current_log_timestamp, format_mascot_log_message, mascot_log_path};
 use self::logging::{
@@ -53,15 +60,19 @@ pub(crate) use self::playback_logging::{
     event_details_with_elapsed, log_playback_error_snapshots, log_playback_event,
     log_playback_request_start, log_playback_snapshots,
 };
+use self::requests::{
+    motion_timeline_request, motion_timeline_request_body,
+    play_timeline_mascot_render_server_with_target,
+};
 pub(crate) use self::state::{init_snapshot_logging_from_config, set_startup_in_progress};
 use self::state::{
     is_startup_in_progress, is_vpt_ensemble_startup_in_progress, next_mascot_sync_id,
     set_vpt_ensemble_startup_in_progress, snapshot_logging_enabled, vpt_ensemble_session_active,
-    vpt_ensemble_session_state,
 };
 #[cfg(test)]
 use self::state::{
-    set_snapshot_logging_enabled, set_vpt_ensemble_session_active, VptEnsembleSessionState,
+    set_snapshot_logging_enabled, set_vpt_ensemble_session_active, vpt_ensemble_session_state,
+    VptEnsembleSessionState,
 };
 
 const MIN_DURATION_MS: u64 = 100;
@@ -185,113 +196,6 @@ pub(crate) async fn prepare_vpt_ensemble_startup(lines: Vec<String>) {
     }
 }
 
-fn configure_vpt_ensemble_startup(lines: &[String]) -> anyhow::Result<()> {
-    if mascot_render_server_healthcheck().is_err() {
-        return Ok(());
-    }
-
-    let status = mascot_render_server_status()?;
-    configure_vpt_ensemble_startup_for_mode_with_members(
-        status.ensemble_mode,
-        lines,
-        set_vpt_ensemble_members_mascot_render_server,
-        set_vpt_ensemble_mascot_render_server,
-    )
-}
-
-#[cfg(test)]
-fn configure_vpt_ensemble_startup_for_mode<F>(
-    startup_mode: ServerEnsembleMode,
-    lines: &[String],
-    set_vpt_ensemble: F,
-) -> anyhow::Result<()>
-where
-    F: FnOnce(&[String]) -> anyhow::Result<()>,
-{
-    configure_vpt_ensemble_startup_for_mode_with_members(
-        startup_mode,
-        lines,
-        |_| Ok(()),
-        set_vpt_ensemble,
-    )
-}
-
-fn configure_vpt_ensemble_startup_for_mode_with_members<M, F>(
-    startup_mode: ServerEnsembleMode,
-    lines: &[String],
-    set_vpt_ensemble_members: M,
-    set_vpt_ensemble: F,
-) -> anyhow::Result<()>
-where
-    M: FnOnce(&[String]) -> anyhow::Result<()>,
-    F: FnOnce(&[String]) -> anyhow::Result<()>,
-{
-    {
-        let mut state = vpt_ensemble_session_state()
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        state.startup_mode = Some(startup_mode);
-        state.active = matches!(startup_mode, ServerEnsembleMode::Vpt);
-        state.restore_single_character_on_exit = false;
-    }
-
-    let character_names = vpt_ensemble_character_names(lines);
-    update_vpt_ensemble_members(&character_names, set_vpt_ensemble_members);
-
-    if !matches!(
-        startup_mode,
-        ServerEnsembleMode::Favorite | ServerEnsembleMode::Vpt
-    ) {
-        return Ok(());
-    }
-
-    if character_names.is_empty() {
-        bail!("vpt ensemble に使える mascot PSD 付き本文speakerがありません");
-    }
-
-    let address = mascot_render_server_address();
-    let request_body = VptEnsembleRequest {
-        character_names: character_names.clone(),
-    };
-    let request = format_mascot_json_request("POST", "/vpt-ensemble", address, &request_body);
-    let result = set_vpt_ensemble(&character_names);
-    if let Err(error) = log_mascot_request_result("vpt ensemble切替", address, &request, &result)
-    {
-        report_mascot_log_failure(&error);
-    }
-    result?;
-
-    let mut state = vpt_ensemble_session_state()
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
-    state.active = true;
-    state.restore_single_character_on_exit = startup_mode == ServerEnsembleMode::Favorite;
-    Ok(())
-}
-
-fn update_vpt_ensemble_members<F>(character_names: &[String], set_vpt_ensemble_members: F)
-where
-    F: FnOnce(&[String]) -> anyhow::Result<()>,
-{
-    let address = mascot_render_server_address();
-    let request_body = VptEnsembleRequest {
-        character_names: character_names.to_vec(),
-    };
-    let request =
-        format_mascot_json_request("POST", "/vpt-ensemble/members", address, &request_body);
-    let result = set_vpt_ensemble_members(character_names);
-    if let Err(error) =
-        log_mascot_request_result("vpt ensemble members更新", address, &request, &result)
-    {
-        report_mascot_log_failure(&error);
-    }
-    if let Err(error) = result {
-        crate::runtime_notice::set_runtime_notice(format!(
-            "[mascot-render] vpt ensemble members更新に失敗しました: {error}"
-        ));
-    }
-}
-
 pub(crate) async fn sync_vpt_ensemble_members(lines: Vec<String>) {
     if is_startup_in_progress() || is_vpt_ensemble_startup_in_progress() {
         return;
@@ -307,69 +211,6 @@ pub(crate) async fn sync_vpt_ensemble_members(lines: Vec<String>) {
             "[mascot-render] vpt ensemble members更新をスキップしました: {error}"
         ));
     }
-}
-
-fn configure_vpt_ensemble_members(lines: &[String]) -> anyhow::Result<()> {
-    if mascot_render_server_healthcheck().is_err() {
-        return Ok(());
-    }
-
-    let character_names = vpt_ensemble_character_names(lines);
-    update_vpt_ensemble_members(
-        &character_names,
-        set_vpt_ensemble_members_mascot_render_server,
-    );
-    Ok(())
-}
-
-fn set_vpt_ensemble_members_mascot_render_server(character_names: &[String]) -> anyhow::Result<()> {
-    let body = serde_json::to_vec(&VptEnsembleRequest {
-        character_names: character_names.to_vec(),
-    })
-    .context("failed to serialize mascot vpt ensemble members request")?;
-    post_mascot_json_request(
-        mascot_render_server_address(),
-        "/vpt-ensemble/members",
-        &body,
-        MASCOT_APPLY_TIMEOUT,
-    )
-}
-
-fn restore_vpt_ensemble_session_on_exit() {
-    restore_vpt_ensemble_session_on_exit_with(set_single_character_mode_mascot_render_server);
-}
-
-fn restore_vpt_ensemble_session_on_exit_with<F>(set_single_character_mode: F) -> bool
-where
-    F: FnOnce() -> anyhow::Result<()>,
-{
-    let should_restore = {
-        let mut state = vpt_ensemble_session_state()
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        let should_restore = state.restore_single_character_on_exit;
-        state.restore_single_character_on_exit = false;
-        state.active = false;
-        should_restore
-    };
-    if !should_restore {
-        return false;
-    }
-
-    let address = mascot_render_server_address();
-    let request = format_mascot_request("POST", "/ensemble-mode/single-character", address, None);
-    let result = set_single_character_mode();
-    if let Err(error) =
-        log_mascot_request_result("single character mode復元", address, &request, &result)
-    {
-        report_mascot_log_failure(&error);
-    }
-    if let Err(error) = result {
-        crate::runtime_notice::set_runtime_notice(format!(
-            "[mascot-render] 終了時の ensemble mode 復元に失敗しました: {error}"
-        ));
-    }
-    true
 }
 
 #[cfg(test)]
@@ -604,145 +445,6 @@ fn handle_playback_sync(sync: MascotPlaybackSync, worker_received_at: Instant) {
             elapsed_ms, elapsed_ms
         ),
     );
-}
-
-#[derive(serde::Serialize)]
-struct MotionTimelineRequestBody<'a> {
-    steps: &'a [MotionTimelineStep],
-    #[serde(skip_serializing_if = "Option::is_none")]
-    target_character_name: Option<&'a str>,
-}
-
-fn motion_timeline_request_body<'a>(
-    request: &'a MotionTimelineRequest,
-    target_character_name: Option<&'a str>,
-) -> MotionTimelineRequestBody<'a> {
-    MotionTimelineRequestBody {
-        steps: &request.steps,
-        target_character_name,
-    }
-}
-
-fn play_timeline_mascot_render_server_with_target(
-    address: SocketAddr,
-    request: &MotionTimelineRequest,
-    target_character_name: Option<&str>,
-) -> anyhow::Result<()> {
-    validate_motion_timeline_request(request)?;
-    let body = serde_json::to_vec(&motion_timeline_request_body(
-        request,
-        target_character_name,
-    ))
-    .context("failed to serialize mascot motion timeline request")?;
-    post_mascot_json_request(address, "/timeline", &body, MASCOT_APPLY_TIMEOUT)
-}
-
-fn post_mascot_json_request(
-    address: SocketAddr,
-    path: &str,
-    body: &[u8],
-    read_timeout: Duration,
-) -> anyhow::Result<()> {
-    let mut stream = std::net::TcpStream::connect_timeout(&address, MASCOT_CONNECT_TIMEOUT)
-        .with_context(|| format!("failed to connect to mascot-render-server at {address}"))?;
-    stream
-        .set_read_timeout(Some(read_timeout))
-        .with_context(|| format!("failed to set read timeout for {address}"))?;
-    stream
-        .set_write_timeout(Some(MASCOT_IO_TIMEOUT))
-        .with_context(|| format!("failed to set write timeout for {address}"))?;
-
-    let host = match address {
-        SocketAddr::V4(address) => format!("{}:{}", address.ip(), address.port()),
-        SocketAddr::V6(address) => format!("[{}]:{}", address.ip(), address.port()),
-    };
-    let request = format!(
-        "POST {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n",
-        body.len()
-    );
-    stream
-        .write_all(request.as_bytes())
-        .with_context(|| format!("failed to write HTTP request to {address}"))?;
-    stream
-        .write_all(body)
-        .with_context(|| format!("failed to write HTTP body to {address}"))?;
-    stream
-        .flush()
-        .with_context(|| format!("failed to flush HTTP request to {address}"))?;
-
-    read_mascot_response(&mut stream, path)
-}
-
-fn read_mascot_response(stream: &mut std::net::TcpStream, path: &str) -> anyhow::Result<()> {
-    let mut reader = BufReader::new(stream);
-    let mut status_line = String::new();
-    reader
-        .read_line(&mut status_line)
-        .context("failed to read HTTP response status line")?;
-    if status_line.trim().is_empty() {
-        bail!("empty HTTP response");
-    }
-
-    let status_code = parse_http_status_code(&status_line)?;
-    let mut content_length = 0usize;
-    let mut header_line = String::new();
-    loop {
-        header_line.clear();
-        reader
-            .read_line(&mut header_line)
-            .context("failed to read HTTP response header")?;
-        if header_line == "\r\n" || header_line == "\n" {
-            break;
-        }
-        if let Some((name, value)) = header_line.split_once(':') {
-            if name.trim().eq_ignore_ascii_case("content-length") {
-                content_length = value
-                    .trim()
-                    .parse::<usize>()
-                    .context("invalid HTTP response Content-Length header")?;
-            }
-        }
-    }
-
-    let mut body = vec![0; content_length];
-    if !body.is_empty() {
-        reader
-            .read_exact(&mut body)
-            .context("failed to read HTTP response body")?;
-    }
-
-    if (200..300).contains(&status_code) {
-        return Ok(());
-    }
-
-    bail!(
-        "mascot-render-server request {path} failed with HTTP {}: {}",
-        status_code,
-        String::from_utf8_lossy(&body).trim()
-    )
-}
-
-fn parse_http_status_code(status_line: &str) -> anyhow::Result<u16> {
-    status_line
-        .split_whitespace()
-        .nth(1)
-        .ok_or_else(|| anyhow::anyhow!("missing HTTP status code"))?
-        .parse::<u16>()
-        .context("invalid HTTP status code")
-}
-
-fn motion_timeline_request(duration_ms: u64) -> MotionTimelineRequest {
-    let mut request = preview_mouth_flap_timeline_request();
-    if let Some(step) = request.steps.first_mut() {
-        step.duration_ms = duration_ms;
-    } else {
-        request.steps.push(MotionTimelineStep {
-            kind: MotionTimelineKind::MouthFlap,
-            duration_ms,
-            fps: PREVIEW_MOUTH_FLAP_FPS,
-        });
-    }
-    request
 }
 
 #[cfg(test)]
