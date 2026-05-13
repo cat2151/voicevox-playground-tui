@@ -1,7 +1,6 @@
 use super::*;
 use mascot_render_client::{preview_mouth_flap_timeline_request, PREVIEW_MOUTH_FLAP_FPS};
 use mascot_render_protocol::{ChangeCharacterRequest, MotionTimelineKind};
-use std::net::SocketAddr;
 
 #[test]
 fn motion_timeline_request_serializes_mouth_flap_kind() {
