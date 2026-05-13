@@ -1,4 +1,4 @@
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -79,6 +79,10 @@ pub(super) fn post_mascot_json_request(
 
 fn read_mascot_response(stream: &mut std::net::TcpStream, path: &str) -> anyhow::Result<()> {
     let mut reader = BufReader::new(stream);
+    read_mascot_response_from_reader(&mut reader, path)
+}
+
+fn read_mascot_response_from_reader(reader: &mut impl BufRead, path: &str) -> anyhow::Result<()> {
     let mut status_line = String::new();
     reader
         .read_line(&mut status_line)
@@ -92,9 +96,12 @@ fn read_mascot_response(stream: &mut std::net::TcpStream, path: &str) -> anyhow:
     let mut header_line = String::new();
     loop {
         header_line.clear();
-        reader
+        let bytes_read = reader
             .read_line(&mut header_line)
             .context("failed to read HTTP response header")?;
+        if bytes_read == 0 {
+            bail!("unexpected EOF while reading HTTP headers");
+        }
         if header_line == "\r\n" || header_line == "\n" {
             break;
         }
@@ -147,4 +154,24 @@ pub(super) fn motion_timeline_request(duration_ms: u64) -> MotionTimelineRequest
         });
     }
     request
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read_mascot_response_from_reader;
+    use std::io::{BufReader, Cursor};
+
+    #[test]
+    fn read_mascot_response_returns_error_on_unexpected_eof_while_reading_headers() {
+        let response = b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n";
+        let mut reader = BufReader::new(Cursor::new(response));
+
+        let result = read_mascot_response_from_reader(&mut reader, "/timeline");
+
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "unexpected EOF while reading HTTP headers"
+        );
+    }
 }
