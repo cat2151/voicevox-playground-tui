@@ -2,6 +2,9 @@
 //! エンジンが起動していない場合にVOICEVOX実行ファイルを検索して起動し、
 //! 起動完了まで待機する。
 
+use std::ffi::OsStr;
+use std::io::ErrorKind;
+
 use anyhow::{Context, Result};
 use mascot_render_client::{
     mascot_render_server_address, mascot_render_server_healthcheck_at,
@@ -13,6 +16,7 @@ use crate::config::EngineConfig;
 /// エンジンが応答するまで待つ最大秒数
 const MAX_WAIT_SECS: u64 = 60;
 const DEFAULT_VOICEVOX_URL: &str = "http://localhost:50021";
+const MASCOT_RENDER_SERVER_COMMAND: &str = "mascot-render-server";
 
 /// ポーリング間隔（ミリ秒）
 const POLL_INTERVAL_MS: u64 = 1000;
@@ -85,28 +89,33 @@ fn find_voicevox_executable(config: &EngineConfig) -> Option<std::path::PathBuf>
     candidates.into_iter().find(|p| p.is_file())
 }
 
-fn launch_detached_process(exe: &std::path::Path) -> Result<()> {
+fn spawn_detached_program(program: &OsStr) -> std::io::Result<()> {
+    let mut command = std::process::Command::new(program);
+
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
         // DETACHED_PROCESS: 親プロセスのコンソールから切り離す
         const DETACHED_PROCESS: u32 = 0x00000008;
-        std::process::Command::new(exe)
-            .creation_flags(DETACHED_PROCESS)
-            .spawn()?;
+        command.creation_flags(DETACHED_PROCESS);
     }
 
     #[cfg(not(target_os = "windows"))]
     {
         // Unix系: stdin/stdout/stderrをnullに向けてスポーン。
         // 親プロセス終了後も子プロセスはinit/systemdに引き取られて動き続ける。
-        std::process::Command::new(exe)
+        command
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()?;
+            .stderr(std::process::Stdio::null());
     }
 
+    command.spawn()?;
+    Ok(())
+}
+
+fn launch_detached_process(exe: &std::path::Path) -> Result<()> {
+    spawn_detached_program(exe.as_os_str())?;
     Ok(())
 }
 
@@ -115,41 +124,35 @@ fn launch_voicevox(exe: &std::path::Path) -> Result<()> {
     launch_detached_process(exe)
 }
 
-fn find_mascot_render_executable(config: &EngineConfig) -> Option<std::path::PathBuf> {
-    let mut candidates = crate::config::configured_mascot_render_executable_candidates(config);
-
-    if let Some(home) = dirs::home_dir() {
-        candidates.push(
-            home.join(".cargo")
-                .join("bin")
-                .join(crate::config::MASCOT_RENDER_SERVER_EXE_NAME),
-        );
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        if let Some(local_app_data) = dirs::data_local_dir() {
-            candidates.push(
-                local_app_data
-                    .join("Programs")
-                    .join("mascot-render-server")
-                    .join(crate::config::MASCOT_RENDER_SERVER_EXE_NAME),
-            );
-        }
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        candidates.push(std::path::PathBuf::from(
-            "/Applications/mascot-render-server.app/Contents/MacOS/mascot-render-server",
-        ));
-    }
-
-    candidates.into_iter().find(|p| p.is_file())
+enum MascotRenderLaunch {
+    Started,
+    NotFound,
 }
 
-fn launch_mascot_render_server(exe: &std::path::Path) -> Result<()> {
-    launch_detached_process(exe)
+fn warn_deprecated_mascot_render_server_path(config: &EngineConfig, log_to_stderr: bool) {
+    if !config.deprecated_mascot_render_server_path_present {
+        return;
+    }
+
+    let message = concat!(
+        "config.toml の mascot_render_server_path は廃止され、無視されます。",
+        " mascot-render-server は PATH から起動します。"
+    );
+    if log_to_stderr {
+        eprintln!("{message}");
+    } else {
+        crate::runtime_notice::set_runtime_notice(format!("[mascot-render] {message}"));
+    }
+}
+
+fn launch_mascot_render_server() -> Result<MascotRenderLaunch> {
+    match spawn_detached_program(OsStr::new(MASCOT_RENDER_SERVER_COMMAND)) {
+        Ok(()) => Ok(MascotRenderLaunch::Started),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(MascotRenderLaunch::NotFound),
+        Err(error) => Err(error).with_context(|| {
+            format!("PATH から {MASCOT_RENDER_SERVER_COMMAND} を起動できませんでした")
+        }),
+    }
 }
 
 async fn is_mascot_render_running() -> bool {
@@ -247,23 +250,20 @@ where
     }
 
     let config = crate::config::load_or_create()?;
-    let Some(exe) = find_mascot_render_executable(&config) else {
+    warn_deprecated_mascot_render_server_path(&config, log_to_stderr);
+
+    if log_to_stderr {
+        eprintln!("mascot-render-server を PATH から起動します: {MASCOT_RENDER_SERVER_COMMAND}");
+    }
+    progress(mascot_render_start_status_message());
+    if let MascotRenderLaunch::NotFound = launch_mascot_render_server()? {
         if log_to_stderr {
             eprintln!(
-                "mascot-render-server は起動しておらず、実行ファイルも見つからなかったため自動起動をスキップします。\n\
-config.toml: {}\n\
-設定キー: mascot_render_server_path",
-                crate::config::config_path().display()
+                "mascot-render-server は起動しておらず、PATH からも見つからなかったため自動起動をスキップします。"
             );
         }
         return Ok(());
-    };
-
-    if log_to_stderr {
-        eprintln!("mascot-render-server を起動します: {}", exe.display());
     }
-    progress(mascot_render_start_status_message());
-    launch_mascot_render_server(&exe)?;
 
     if log_to_stderr {
         eprintln!("mascot-render-server が起動するまで待機しています...");
@@ -392,7 +392,7 @@ where
 }
 
 /// mascot-render-server が起動していなければ自動起動し、起動完了まで待機する。
-/// 実行ファイルが見つからない場合は自動起動をスキップする。
+/// PATHから実行ファイルが見つからない場合は自動起動をスキップする。
 pub async fn ensure_mascot_render_running() -> Result<()> {
     ensure_mascot_render_ready_impl(|_| {}, true).await
 }
