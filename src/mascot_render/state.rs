@@ -49,6 +49,17 @@ pub(super) fn set_vpt_ensemble_session_active(active: bool) {
         .active = active;
 }
 
+pub(super) fn sync_vpt_ensemble_session_from_server_mode(mode: ServerEnsembleMode) {
+    let mut state = vpt_ensemble_session_state()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let active = matches!(mode, ServerEnsembleMode::Vpt);
+    state.active = active;
+    if !active {
+        state.restore_single_character_on_exit = false;
+    }
+}
+
 pub(super) fn vpt_ensemble_session_active() -> bool {
     vpt_ensemble_session_state()
         .lock()

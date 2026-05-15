@@ -7,10 +7,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use mascot_render_client::{
-    change_character_mascot_render_server, mascot_render_server_address, show_mascot_render_server,
+    change_character_mascot_render_server, mascot_render_server_address,
+    mascot_render_server_status, show_mascot_render_server,
 };
 use mascot_render_protocol::ChangeCharacterRequest;
-#[cfg(test)]
 use mascot_render_protocol::ServerEnsembleMode;
 
 mod data;
@@ -67,7 +67,8 @@ use self::requests::{
 pub(crate) use self::state::{init_snapshot_logging_from_config, set_startup_in_progress};
 use self::state::{
     is_startup_in_progress, is_vpt_ensemble_startup_in_progress, next_mascot_sync_id,
-    set_vpt_ensemble_startup_in_progress, snapshot_logging_enabled, vpt_ensemble_session_active,
+    set_vpt_ensemble_startup_in_progress, snapshot_logging_enabled,
+    sync_vpt_ensemble_session_from_server_mode, vpt_ensemble_session_active,
 };
 #[cfg(test)]
 use self::state::{
@@ -81,6 +82,7 @@ const MASCOT_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const MASCOT_IO_TIMEOUT: Duration = Duration::from_secs(2);
 const MASCOT_APPLY_TIMEOUT: Duration = Duration::from_secs(15);
 const DATA_ROOT_ENV: &str = "MASCOT_RENDER_SERVER_DATA_ROOT";
+const MASCOT_MODE_SYNC_INTERVAL: Duration = Duration::from_secs(1);
 #[cfg(test)]
 const OVERLAY_DURATION: std::time::Duration = std::time::Duration::from_secs(5);
 
@@ -96,6 +98,22 @@ impl Drop for MascotEnsembleSessionGuard {
     fn drop(&mut self) {
         restore_vpt_ensemble_session_on_exit();
     }
+}
+
+pub(crate) fn spawn_mascot_mode_sync() {
+    static STARTED: OnceLock<()> = OnceLock::new();
+    STARTED.get_or_init(|| {
+        thread::spawn(|| loop {
+            thread::sleep(MASCOT_MODE_SYNC_INTERVAL);
+            if is_startup_in_progress() || is_vpt_ensemble_startup_in_progress() {
+                continue;
+            }
+            let Ok(status) = mascot_render_server_status() else {
+                continue;
+            };
+            sync_vpt_ensemble_session_from_server_mode(status.ensemble_mode);
+        });
+    });
 }
 
 pub fn sync_playback(line: &str, wav: &[u8]) {
@@ -309,14 +327,28 @@ where
     if let Err(error) = log_result {
         report_mascot_log_failure(&error);
     }
+    let rejected_by_vpt_ensemble =
+        change_character_error_indicates_vpt_ensemble_active(&change_character_result);
     if let Some(sync_id) = sync_id {
-        log_playback_error_snapshots(
-            sync_id,
-            "change-character",
-            address,
-            sync_started_at,
-            &change_character_result,
-        );
+        if rejected_by_vpt_ensemble {
+            log_playback_event(
+                sync_id,
+                "change-character",
+                "request_recovered",
+                &event_details_with_elapsed(
+                    sync_started_at,
+                    "reason=server_reported_vpt_ensemble_active",
+                ),
+            );
+        } else {
+            log_playback_error_snapshots(
+                sync_id,
+                "change-character",
+                address,
+                sync_started_at,
+                &change_character_result,
+            );
+        }
         log_playback_snapshots(
             sync_id,
             "change-character",
@@ -325,7 +357,22 @@ where
             sync_started_at,
         );
     }
+    if rejected_by_vpt_ensemble {
+        sync_vpt_ensemble_session_from_server_mode(ServerEnsembleMode::Vpt);
+        dismiss_blocking_overlay_message();
+        clear_overlay_message();
+        return true;
+    }
     change_character_result.is_ok()
+}
+
+fn change_character_error_indicates_vpt_ensemble_active(result: &anyhow::Result<()>) -> bool {
+    let Err(error) = result else {
+        return false;
+    };
+    let message = format!("{error:#}");
+    message.contains("ensemble_mode=Vpt")
+        && message.contains("cannot change character while ensemble mode is active")
 }
 
 fn handle_playback_sync(sync: MascotPlaybackSync, worker_received_at: Instant) {

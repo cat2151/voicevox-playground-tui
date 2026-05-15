@@ -89,6 +89,7 @@ async fn main() -> Result<()> {
         app.status_msg = String::from("[startup] loading history...");
     }
     engine_launcher::spawn_mascot_render_startup();
+    mascot_render::spawn_mascot_mode_sync();
 
     let exit_disposition = tui::run(&mut app, history_rx, runtime_startup_rx).await?;
 

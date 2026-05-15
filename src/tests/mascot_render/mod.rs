@@ -325,6 +325,30 @@ fn vpt_ensemble_startup_updates_members_without_mode_switch_for_single_character
 }
 
 #[test]
+fn server_mode_sync_updates_vpt_ensemble_session_active() {
+    with_overlay_state_lock(|| {
+        assert!(!vpt_ensemble_session_active());
+
+        sync_vpt_ensemble_session_from_server_mode(ServerEnsembleMode::Vpt);
+        assert!(vpt_ensemble_session_active());
+
+        {
+            let mut state = vpt_ensemble_session_state()
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            state.restore_single_character_on_exit = true;
+        }
+        sync_vpt_ensemble_session_from_server_mode(ServerEnsembleMode::SingleCharacter);
+
+        assert!(!vpt_ensemble_session_active());
+        let state = vpt_ensemble_session_state()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        assert!(!state.restore_single_character_on_exit);
+    });
+}
+
+#[test]
 fn restore_vpt_ensemble_session_posts_single_character_mode_after_startup_favorite() {
     with_overlay_state_lock(|| {
         with_temp_request_log_dir(|dir| {
@@ -439,6 +463,39 @@ fn sync_character_change_skips_post_while_vpt_ensemble_session_is_active() {
             assert!(log.contains("event=request_skipped"));
             assert!(log.contains("reason=vpt_ensemble_session_active"));
             assert!(!log.contains("POST /change-character HTTP/1.1"));
+        });
+    });
+}
+
+#[test]
+fn sync_character_change_recovers_when_server_reports_vpt_ensemble_active() {
+    with_overlay_state_lock(|| {
+        with_temp_request_log_dir(|dir| {
+            let address = SocketAddr::from(([127, 0, 0, 1], 62152));
+            set_loaded_psd_file_names_for_test(&["春日部つむぎ.psd"]);
+
+            let result = sync_character_change_with_context(
+                Some(9),
+                Some(Instant::now()),
+                address,
+                Some("春日部つむぎ"),
+                |_| {
+                    Err(anyhow::anyhow!(
+                        "mascot-render-server request failed with HTTP 500: mascot change_character command failed while applying in the UI thread: failed to apply mascot change-character command: requested_character=春日部つむぎ: ensemble_mode=Vpt; cannot change character while ensemble mode is active"
+                    ))
+                },
+            );
+
+            assert!(result);
+            assert!(vpt_ensemble_session_active());
+            assert_eq!(current_overlay_message(), None);
+
+            let log = fs::read_to_string(dir.join("request.log")).unwrap();
+            assert!(log.contains("POST /change-character HTTP/1.1"));
+            assert!(log.contains("status=error"));
+            assert!(log.contains("event=request_recovered"));
+            assert!(log.contains("reason=server_reported_vpt_ensemble_active"));
+            assert!(!log.contains("event=snapshot_start"));
         });
     });
 }
