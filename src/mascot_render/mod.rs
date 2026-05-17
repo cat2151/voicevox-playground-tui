@@ -38,7 +38,8 @@ use self::ensemble::{
 #[cfg(test)]
 use self::ensemble::{
     configure_vpt_ensemble_startup_for_mode, configure_vpt_ensemble_startup_for_mode_with_members,
-    restore_vpt_ensemble_session_on_exit_with,
+    restore_vpt_ensemble_session_on_exit_with, update_vpt_ensemble_members_force_for_test,
+    update_vpt_ensemble_members_skip_unchanged_for_test,
 };
 #[cfg(test)]
 use self::logging::{current_log_timestamp, format_mascot_log_message, mascot_log_path};

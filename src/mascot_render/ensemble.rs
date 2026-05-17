@@ -14,8 +14,15 @@ use super::requests::post_mascot_json_request;
 use super::state::vpt_ensemble_session_state;
 use super::MASCOT_APPLY_TIMEOUT;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VptEnsembleMembersSyncPolicy {
+    Force,
+    SkipUnchanged,
+}
+
 pub(super) fn configure_vpt_ensemble_startup(lines: &[String]) -> anyhow::Result<()> {
     if mascot_render_server_healthcheck().is_err() {
+        clear_synced_vpt_ensemble_members();
         return Ok(());
     }
 
@@ -65,7 +72,11 @@ where
     }
 
     let character_names = vpt_ensemble_character_names(lines);
-    update_vpt_ensemble_members(&character_names, set_vpt_ensemble_members);
+    update_vpt_ensemble_members(
+        &character_names,
+        set_vpt_ensemble_members,
+        VptEnsembleMembersSyncPolicy::Force,
+    );
 
     if !matches!(
         startup_mode,
@@ -98,10 +109,19 @@ where
     Ok(())
 }
 
-fn update_vpt_ensemble_members<F>(character_names: &[String], set_vpt_ensemble_members: F)
-where
+fn update_vpt_ensemble_members<F>(
+    character_names: &[String],
+    set_vpt_ensemble_members: F,
+    policy: VptEnsembleMembersSyncPolicy,
+) where
     F: FnOnce(&[String]) -> anyhow::Result<()>,
 {
+    if policy == VptEnsembleMembersSyncPolicy::SkipUnchanged
+        && last_synced_vpt_ensemble_members_match(character_names)
+    {
+        return;
+    }
+
     let address = mascot_render_server_address();
     let request_body = VptEnsembleRequest {
         character_names: character_names.to_vec(),
@@ -114,15 +134,43 @@ where
     {
         report_mascot_log_failure(&error);
     }
-    if let Err(error) = result {
-        crate::runtime_notice::set_runtime_notice(format!(
-            "[mascot-render] vpt ensemble members更新に失敗しました: {error}"
-        ));
+    match result {
+        Ok(()) => record_synced_vpt_ensemble_members(character_names),
+        Err(error) => {
+            crate::runtime_notice::set_runtime_notice(format!(
+                "[mascot-render] vpt ensemble members更新に失敗しました: {error}"
+            ));
+        }
     }
+}
+
+fn last_synced_vpt_ensemble_members_match(character_names: &[String]) -> bool {
+    let state = vpt_ensemble_session_state()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    state
+        .last_synced_members
+        .as_deref()
+        .is_some_and(|last| last == character_names)
+}
+
+fn record_synced_vpt_ensemble_members(character_names: &[String]) {
+    vpt_ensemble_session_state()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .last_synced_members = Some(character_names.to_vec());
+}
+
+fn clear_synced_vpt_ensemble_members() {
+    vpt_ensemble_session_state()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .last_synced_members = None;
 }
 
 pub(super) fn configure_vpt_ensemble_members(lines: &[String]) -> anyhow::Result<()> {
     if mascot_render_server_healthcheck().is_err() {
+        clear_synced_vpt_ensemble_members();
         return Ok(());
     }
 
@@ -130,8 +178,37 @@ pub(super) fn configure_vpt_ensemble_members(lines: &[String]) -> anyhow::Result
     update_vpt_ensemble_members(
         &character_names,
         set_vpt_ensemble_members_mascot_render_server,
+        VptEnsembleMembersSyncPolicy::SkipUnchanged,
     );
     Ok(())
+}
+
+#[cfg(test)]
+pub(super) fn update_vpt_ensemble_members_skip_unchanged_for_test<F>(
+    character_names: &[String],
+    set_vpt_ensemble_members: F,
+) where
+    F: FnOnce(&[String]) -> anyhow::Result<()>,
+{
+    update_vpt_ensemble_members(
+        character_names,
+        set_vpt_ensemble_members,
+        VptEnsembleMembersSyncPolicy::SkipUnchanged,
+    );
+}
+
+#[cfg(test)]
+pub(super) fn update_vpt_ensemble_members_force_for_test<F>(
+    character_names: &[String],
+    set_vpt_ensemble_members: F,
+) where
+    F: FnOnce(&[String]) -> anyhow::Result<()>,
+{
+    update_vpt_ensemble_members(
+        character_names,
+        set_vpt_ensemble_members,
+        VptEnsembleMembersSyncPolicy::Force,
+    );
 }
 
 fn set_vpt_ensemble_members_mascot_render_server(character_names: &[String]) -> anyhow::Result<()> {

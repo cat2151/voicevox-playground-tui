@@ -264,6 +264,83 @@ fn vpt_ensemble_startup_updates_members_before_mode_switch() {
 }
 
 #[test]
+fn vpt_ensemble_members_sync_skips_unchanged_successful_members() {
+    with_overlay_state_lock(|| {
+        let names = vec!["四国めたん".to_string(), "ずんだもん".to_string()];
+        let calls = std::cell::RefCell::new(Vec::new());
+
+        update_vpt_ensemble_members_skip_unchanged_for_test(&names, |names| {
+            calls.borrow_mut().push(names.to_vec());
+            Ok(())
+        });
+        update_vpt_ensemble_members_skip_unchanged_for_test(&names, |names| {
+            calls.borrow_mut().push(names.to_vec());
+            Ok(())
+        });
+
+        assert_eq!(calls.into_inner(), vec![names]);
+    });
+}
+
+#[test]
+fn vpt_ensemble_members_sync_sends_changed_members_after_success() {
+    with_overlay_state_lock(|| {
+        let first = vec!["四国めたん".to_string()];
+        let second = vec!["四国めたん".to_string(), "ずんだもん".to_string()];
+        let calls = std::cell::RefCell::new(Vec::new());
+
+        update_vpt_ensemble_members_skip_unchanged_for_test(&first, |names| {
+            calls.borrow_mut().push(names.to_vec());
+            Ok(())
+        });
+        update_vpt_ensemble_members_skip_unchanged_for_test(&second, |names| {
+            calls.borrow_mut().push(names.to_vec());
+            Ok(())
+        });
+
+        assert_eq!(calls.into_inner(), vec![first, second]);
+    });
+}
+
+#[test]
+fn vpt_ensemble_members_sync_retries_same_members_after_failure() {
+    with_overlay_state_lock(|| {
+        let names = vec!["四国めたん".to_string()];
+        let calls = std::cell::RefCell::new(Vec::new());
+
+        update_vpt_ensemble_members_skip_unchanged_for_test(&names, |names| {
+            calls.borrow_mut().push(names.to_vec());
+            Err(anyhow::anyhow!("request failed"))
+        });
+        update_vpt_ensemble_members_skip_unchanged_for_test(&names, |names| {
+            calls.borrow_mut().push(names.to_vec());
+            Ok(())
+        });
+
+        assert_eq!(calls.into_inner(), vec![names.clone(), names]);
+    });
+}
+
+#[test]
+fn vpt_ensemble_members_force_sync_posts_even_when_members_are_unchanged() {
+    with_overlay_state_lock(|| {
+        let names = vec!["四国めたん".to_string()];
+        let calls = std::cell::RefCell::new(Vec::new());
+
+        update_vpt_ensemble_members_skip_unchanged_for_test(&names, |names| {
+            calls.borrow_mut().push(names.to_vec());
+            Ok(())
+        });
+        update_vpt_ensemble_members_force_for_test(&names, |names| {
+            calls.borrow_mut().push(names.to_vec());
+            Ok(())
+        });
+
+        assert_eq!(calls.into_inner(), vec![names.clone(), names]);
+    });
+}
+
+#[test]
 fn vpt_ensemble_startup_reposts_current_lines_when_startup_mode_is_vpt() {
     speakers::init_test_table();
     with_overlay_state_lock(|| {

@@ -8,6 +8,7 @@ pub(super) struct VptEnsembleSessionState {
     pub(super) startup_mode: Option<ServerEnsembleMode>,
     pub(super) active: bool,
     pub(super) restore_single_character_on_exit: bool,
+    pub(super) last_synced_members: Option<Vec<String>>,
 }
 
 pub(super) fn is_startup_in_progress() -> bool {
