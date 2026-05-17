@@ -5,6 +5,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use mascot_render_client::mascot_render_server_status;
+#[cfg(test)]
 use mascot_render_protocol::ServerEnsembleMode;
 
 mod data;
