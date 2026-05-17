@@ -76,7 +76,7 @@ use self::state::{
 };
 
 const MIN_DURATION_MS: u64 = 100;
-pub(super) const FALLBACK_DURATION_MS: u64 = 5_000;
+const FALLBACK_DURATION_MS: u64 = 5_000;
 const MASCOT_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const MASCOT_IO_TIMEOUT: Duration = Duration::from_secs(2);
 const MASCOT_APPLY_TIMEOUT: Duration = Duration::from_secs(15);

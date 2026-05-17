@@ -81,8 +81,8 @@ fn mascot_worker_tx() -> &'static Sender<MascotPlaybackSync> {
                     "worker",
                     "sync_request_received",
                     &format!(
-                        "elapsed_ms={} queue_wait_ms={} duration_ms={} char_name={:?}",
-                        queue_wait_ms, queue_wait_ms, sync.duration_ms, &sync.char_name
+                        "queue_wait_ms={} duration_ms={} char_name={:?}",
+                        queue_wait_ms, sync.duration_ms, &sync.char_name
                     ),
                 );
                 handle_playback_sync(sync, received_at);
@@ -298,7 +298,7 @@ fn handle_playback_sync(sync: MascotPlaybackSync, worker_received_at: Instant) {
             "handle_playback_sync_end",
             &format!(
                 "elapsed_ms={} duration_ms={} status=stopped_after_change_character_error",
-                elapsed_ms, elapsed_ms
+                elapsed_ms, sync.duration_ms
             ),
         );
         return;
@@ -354,7 +354,7 @@ fn handle_playback_sync(sync: MascotPlaybackSync, worker_received_at: Instant) {
         "handle_playback_sync_end",
         &format!(
             "elapsed_ms={} duration_ms={} status=ok",
-            elapsed_ms, elapsed_ms
+            elapsed_ms, sync.duration_ms
         ),
     );
 }
