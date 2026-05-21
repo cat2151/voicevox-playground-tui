@@ -62,7 +62,8 @@ pub(crate) use self::playback_logging::{
 };
 use self::requests::{
     motion_timeline_request, motion_timeline_request_body,
-    play_timeline_mascot_render_server_with_target,
+    play_speaking_bounce_timeline_mascot_render_server_with_target,
+    play_timeline_mascot_render_server_with_target, speaking_bounce_timeline_request_body,
 };
 pub(crate) use self::state::{init_snapshot_logging_from_config, set_startup_in_progress};
 use self::state::{

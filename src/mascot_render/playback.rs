@@ -15,9 +15,10 @@ use super::{
     log_mascot_sync_request_result_timed, log_playback_error_snapshots, log_playback_event,
     log_playback_request_start, log_playback_snapshots, mascot_char_name_for_line,
     motion_timeline_request, motion_timeline_request_body, next_mascot_sync_id,
+    play_speaking_bounce_timeline_mascot_render_server_with_target,
     play_timeline_mascot_render_server_with_target, report_mascot_log_failure, speaker_has_psd,
-    sync_vpt_ensemble_session_from_server_mode, vpt_ensemble_session_active, wav_duration_ms,
-    MascotSyncRequestContext, FALLBACK_DURATION_MS,
+    speaking_bounce_timeline_request_body, sync_vpt_ensemble_session_from_server_mode,
+    vpt_ensemble_session_active, wav_duration_ms, MascotSyncRequestContext, FALLBACK_DURATION_MS,
 };
 use crate::mascot_render::{is_startup_in_progress, is_vpt_ensemble_startup_in_progress};
 
@@ -240,6 +241,65 @@ fn change_character_error_indicates_vpt_ensemble_active(result: &anyhow::Result<
         && message.contains("cannot change character while ensemble mode is active")
 }
 
+fn send_speaking_bounce_timeline(
+    sync_id: u64,
+    sync_started_at: Instant,
+    address: SocketAddr,
+    target_character_name: &str,
+) {
+    let request_body = speaking_bounce_timeline_request_body(Some(target_character_name));
+    let request_log = format_mascot_json_request("POST", "/timeline", address, &request_body);
+    let action = format!("{target_character_name} の発話バウンス");
+    log_playback_snapshots(
+        sync_id,
+        "timeline-bounce",
+        "before",
+        address,
+        Some(sync_started_at),
+    );
+    log_playback_request_start(
+        sync_id,
+        "timeline-bounce",
+        &action,
+        address,
+        Some(sync_started_at),
+    );
+    let timeline_started_at = Instant::now();
+    let timeline_result = play_speaking_bounce_timeline_mascot_render_server_with_target(
+        address,
+        target_character_name,
+    );
+    let timeline_duration = timeline_started_at.elapsed();
+    if let Err(error) = log_mascot_sync_request_result_timed(
+        MascotSyncRequestContext {
+            sync_id,
+            phase: "timeline-bounce",
+            action: &action,
+            address,
+            sync_started_at: Some(sync_started_at),
+        },
+        &request_log,
+        &timeline_result,
+        timeline_duration,
+    ) {
+        report_mascot_log_failure(&error);
+    }
+    log_playback_error_snapshots(
+        sync_id,
+        "timeline-bounce",
+        address,
+        Some(sync_started_at),
+        &timeline_result,
+    );
+    log_playback_snapshots(
+        sync_id,
+        "timeline-bounce",
+        "after",
+        address,
+        Some(sync_started_at),
+    );
+}
+
 fn handle_playback_sync(sync: MascotPlaybackSync, worker_received_at: Instant) {
     let address = mascot_render_server_address();
     let sync_id = sync.sync_id;
@@ -304,8 +364,14 @@ fn handle_playback_sync(sync: MascotPlaybackSync, worker_received_at: Instant) {
         return;
     }
 
-    let request = motion_timeline_request(sync.duration_ms);
     let target_character_name = sync.char_name.as_deref();
+    if let Some(target_character_name) =
+        target_character_name.filter(|_| vpt_ensemble_session_active())
+    {
+        send_speaking_bounce_timeline(sync_id, sync_started_at, address, target_character_name);
+    }
+
+    let request = motion_timeline_request(sync.duration_ms);
     let request_body = motion_timeline_request_body(&request, target_character_name);
     let request_log = format_mascot_json_request("POST", "/timeline", address, &request_body);
     let action = sync

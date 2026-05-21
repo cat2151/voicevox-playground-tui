@@ -53,6 +53,25 @@ fn motion_timeline_request_body_omits_empty_target_character_name() {
 }
 
 #[test]
+fn speaking_bounce_timeline_request_body_serializes_bounce_kind_and_target() {
+    let body =
+        serde_json::to_value(speaking_bounce_timeline_request_body(Some("四国めたん"))).unwrap();
+
+    assert_eq!(body["steps"][0]["kind"], "bounce");
+    assert_eq!(body["steps"][0]["duration_ms"], 900);
+    assert_eq!(body["steps"][0]["fps"], 60);
+    assert_eq!(body["target_character_name"], "四国めたん");
+}
+
+#[test]
+fn speaking_bounce_timeline_request_body_omits_empty_target_character_name() {
+    let body = serde_json::to_value(speaking_bounce_timeline_request_body(None)).unwrap();
+
+    assert_eq!(body["steps"][0]["kind"], "bounce");
+    assert!(body.get("target_character_name").is_none());
+}
+
+#[test]
 fn format_mascot_request_without_body_omits_json_sections() {
     let address = SocketAddr::from(([127, 0, 0, 1], 62152));
 

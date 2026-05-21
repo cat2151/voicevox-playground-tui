@@ -10,6 +10,9 @@ use mascot_render_protocol::{
 
 use super::{MASCOT_APPLY_TIMEOUT, MASCOT_CONNECT_TIMEOUT, MASCOT_IO_TIMEOUT};
 
+const SPEAKING_BOUNCE_DURATION_MS: u64 = 900;
+const SPEAKING_BOUNCE_FPS: u16 = 60;
+
 #[derive(serde::Serialize)]
 pub(super) struct MotionTimelineRequestBody<'a> {
     steps: &'a [MotionTimelineStep],
@@ -38,6 +41,50 @@ pub(super) fn play_timeline_mascot_render_server_with_target(
         target_character_name,
     ))
     .context("failed to serialize mascot motion timeline request")?;
+    post_mascot_json_request(address, "/timeline", &body, MASCOT_APPLY_TIMEOUT)
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum SpeakingBounceTimelineKind {
+    Bounce,
+}
+
+#[derive(serde::Serialize)]
+pub(super) struct SpeakingBounceTimelineStep {
+    kind: SpeakingBounceTimelineKind,
+    duration_ms: u64,
+    fps: u16,
+}
+
+#[derive(serde::Serialize)]
+pub(super) struct SpeakingBounceTimelineRequestBody<'a> {
+    steps: [SpeakingBounceTimelineStep; 1],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target_character_name: Option<&'a str>,
+}
+
+pub(super) fn speaking_bounce_timeline_request_body(
+    target_character_name: Option<&str>,
+) -> SpeakingBounceTimelineRequestBody<'_> {
+    SpeakingBounceTimelineRequestBody {
+        steps: [SpeakingBounceTimelineStep {
+            kind: SpeakingBounceTimelineKind::Bounce,
+            duration_ms: SPEAKING_BOUNCE_DURATION_MS,
+            fps: SPEAKING_BOUNCE_FPS,
+        }],
+        target_character_name,
+    }
+}
+
+pub(super) fn play_speaking_bounce_timeline_mascot_render_server_with_target(
+    address: SocketAddr,
+    target_character_name: &str,
+) -> anyhow::Result<()> {
+    let body = serde_json::to_vec(&speaking_bounce_timeline_request_body(Some(
+        target_character_name,
+    )))
+    .context("failed to serialize mascot speaking bounce timeline request")?;
     post_mascot_json_request(address, "/timeline", &body, MASCOT_APPLY_TIMEOUT)
 }
 
