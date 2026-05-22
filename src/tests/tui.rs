@@ -2,8 +2,9 @@ use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, Ke
 use tokio::sync::mpsc;
 
 use super::{
-    focus_change, handle_blocking_overlay, handle_runtime_startup, handle_startup_load,
-    mode_handlers::handle_mode_event, should_exit_during_startup, should_ignore_key_event,
+    focus_change, handle_blocking_overlay, handle_post_startup_prepare, handle_runtime_startup,
+    handle_startup_load, mode_handlers::handle_mode_event, should_exit_during_startup,
+    should_ignore_key_event,
 };
 
 #[test]
@@ -170,6 +171,33 @@ fn handle_runtime_startup_returns_error_when_loader_disconnects() {
         );
         assert!(runtime_startup_rx.is_none());
     });
+}
+
+#[test]
+fn handle_post_startup_prepare_returns_true_when_prepare_finishes() {
+    let (tx, rx) = mpsc::unbounded_channel();
+    tx.send(()).unwrap();
+    let mut post_startup_rx = Some(rx);
+
+    let finished = handle_post_startup_prepare(&mut post_startup_rx).unwrap();
+
+    assert!(finished);
+    assert!(post_startup_rx.is_none());
+}
+
+#[test]
+fn handle_post_startup_prepare_returns_error_when_prepare_disconnects() {
+    let (tx, rx) = mpsc::unbounded_channel();
+    drop(tx);
+    let mut post_startup_rx = Some(rx);
+
+    let err = handle_post_startup_prepare(&mut post_startup_rx).unwrap_err();
+
+    assert_eq!(
+        err.to_string(),
+        "startup error: mascot ensemble preparer disconnected"
+    );
+    assert!(post_startup_rx.is_none());
 }
 
 fn make_speaker_style_app() -> (crate::app::App, mpsc::Receiver<crate::fetch::FetchRequest>) {

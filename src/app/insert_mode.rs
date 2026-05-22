@@ -133,13 +133,32 @@ impl App {
             .await;
     }
 
-    /// ステータス表示文字列: Insertモード中にfetch中なら "[fetching...]" を返す
-    pub fn status_display(&self) -> &str {
-        if self.mode == Mode::Insert && self.is_fetching.load(Ordering::Relaxed) {
+    /// ステータス表示文字列: 待機中の処理にはスピナーを付ける。
+    pub fn status_display(&self) -> String {
+        let status = if self.mode == Mode::Insert && self.is_fetching.load(Ordering::Relaxed) {
             "[fetching...]"
         } else {
             &self.status_msg
+        };
+        if self.status_needs_spinner(status) {
+            crate::spinner::decorate(status)
+        } else {
+            status.to_string()
         }
+    }
+
+    fn status_needs_spinner(&self, status: &str) -> bool {
+        let fetch_in_progress =
+            status.starts_with("[fetching...]") && self.is_fetching.load(Ordering::Relaxed);
+        let intonation_in_progress = self
+            .intonation_play_handle
+            .as_ref()
+            .is_some_and(|handle| !handle.is_finished());
+
+        status.starts_with("[startup]")
+            || status == "[audio_query 取得中...]"
+            || fetch_in_progress
+            || intonation_in_progress
     }
 }
 

@@ -307,6 +307,7 @@ impl App {
                 return;
             }
         }
+        self.status_msg = String::from("[♬ intonation] synthesizing...");
         self.spawn_intonation_play(self.intonation_query.clone(), speaker_id, source_text);
     }
 }

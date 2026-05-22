@@ -62,10 +62,12 @@ pub async fn run(
     const AUTO_SAVE_INTERVAL: Duration = Duration::from_secs(60);
     let mut history_pending = history_rx.is_some();
     let mut runtime_startup_pending = runtime_startup_rx.is_some();
+    let mut post_startup_rx: Option<mpsc::UnboundedReceiver<()>> = None;
     let mut needs_init = !history_pending && !runtime_startup_pending;
 
     loop {
-        let startup_pending = history_pending || runtime_startup_pending;
+        let startup_pending =
+            history_pending || runtime_startup_pending || post_startup_rx.is_some();
 
         // イントネーション編集モードのデバウンス再生チェック（100msポーリング周期）
         if app.mode == Mode::Intonation {
@@ -97,13 +99,17 @@ pub async fn run(
             needs_init = !history_pending;
         }
 
+        if handle_post_startup_prepare(&mut post_startup_rx)? {
+            app.status_msg = String::from("ready");
+            app.init().await;
+        }
+
         if !history_pending && !runtime_startup_pending && needs_init {
             app.status_msg = String::from("[startup] preparing mascot ensemble...");
             terminal.draw(|f| ui::draw(f, app))?;
-            mascot_render::prepare_vpt_ensemble_startup(app.lines.clone()).await;
-            app.status_msg = String::from("ready");
-            app.init().await;
+            post_startup_rx = Some(spawn_post_startup_prepare(app.lines.clone()));
             needs_init = false;
+            continue;
         }
 
         if !event::poll(Duration::from_millis(100))? {
@@ -135,6 +141,37 @@ pub async fn run(
 
         if mode_handlers::handle_mode_event(app, ev).await == mode_handlers::LoopControl::Break {
             return Ok(ExitDisposition::PersistState);
+        }
+    }
+}
+
+fn spawn_post_startup_prepare(lines: Vec<String>) -> mpsc::UnboundedReceiver<()> {
+    let (tx, rx) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        mascot_render::prepare_vpt_ensemble_startup(lines).await;
+        let _ = tx.send(());
+    });
+    rx
+}
+
+fn handle_post_startup_prepare(
+    post_startup_rx: &mut Option<mpsc::UnboundedReceiver<()>>,
+) -> Result<bool> {
+    let Some(rx) = post_startup_rx.as_mut() else {
+        return Ok(false);
+    };
+
+    match rx.try_recv() {
+        Ok(()) => {
+            *post_startup_rx = None;
+            Ok(true)
+        }
+        Err(mpsc::error::TryRecvError::Empty) => Ok(false),
+        Err(mpsc::error::TryRecvError::Disconnected) => {
+            *post_startup_rx = None;
+            Err(anyhow::anyhow!(
+                "startup error: mascot ensemble preparer disconnected"
+            ))
         }
     }
 }

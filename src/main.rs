@@ -9,6 +9,7 @@ mod mascot_render;
 mod player;
 mod runtime_notice;
 mod speakers;
+mod spinner;
 mod startup;
 mod tag;
 mod tui;

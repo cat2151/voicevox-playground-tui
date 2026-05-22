@@ -34,6 +34,7 @@ pub(super) fn render_startup_overlay(f: &mut Frame) {
     let Some(message) = mascot_render::current_startup_overlay_message() else {
         return;
     };
+    let message = crate::spinner::decorate(&message);
 
     let area = top_overlay_rect(f.area(), &message);
     f.render_widget(Clear, area);

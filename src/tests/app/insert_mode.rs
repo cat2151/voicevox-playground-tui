@@ -1,6 +1,7 @@
 use super::*;
 use crate::app::IntonationLineData;
 use crate::speakers;
+use std::sync::atomic::Ordering;
 
 fn setup() {
     speakers::init_test_table();
@@ -71,4 +72,27 @@ async fn commit_insert_clears_intonation_when_text_content_changes() {
         app.line_intonations[0].is_none(),
         "テキスト本文が変わった場合はイントネーションデータがクリアされるべき"
     );
+}
+
+#[tokio::test]
+async fn status_display_adds_spinner_while_fetching() {
+    setup();
+    let mut app = make_app_with_line("ずんだもん");
+    app.status_msg = String::from("[fetching...] line 1");
+    app.is_fetching.store(true, Ordering::Relaxed);
+
+    let display = app.status_display();
+
+    assert!(display.ends_with("[fetching...] line 1"));
+    assert_ne!(display, "[fetching...] line 1");
+}
+
+#[tokio::test]
+async fn status_display_keeps_finished_fetch_message_without_spinner() {
+    setup();
+    let mut app = make_app_with_line("ずんだもん");
+    app.status_msg = String::from("[fetching...] line 1");
+    app.is_fetching.store(false, Ordering::Relaxed);
+
+    assert_eq!(app.status_display(), "[fetching...] line 1");
 }
