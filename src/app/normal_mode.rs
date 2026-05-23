@@ -1,6 +1,6 @@
 //! Normalモードの操作。
 
-use super::App;
+use super::{App, YankedLine};
 
 impl App {
     /// count_bufを消費して繰り返し回数を返す。バッファが空または0のときは1を返す。
@@ -66,7 +66,10 @@ impl App {
 
     pub async fn delete_current_line(&mut self) {
         self.reset_pending_prefixes();
-        self.yank_buf = Some(self.lines.get(self.cursor).cloned().unwrap_or_default());
+        self.yank_buf = Some(YankedLine {
+            text: self.lines.get(self.cursor).cloned().unwrap_or_default(),
+            intonation: self.line_intonations.get(self.cursor).cloned().flatten(),
+        });
         if self.lines.len() <= 1 {
             self.lines = vec![String::new()];
             self.line_intonations = vec![None];
@@ -86,12 +89,13 @@ impl App {
 
     pub async fn paste_below(&mut self) {
         self.reset_pending_prefixes();
-        let text = match &self.yank_buf {
-            Some(t) => t.clone(),
+        let yanked = match &self.yank_buf {
+            Some(line) => line.clone(),
             None => return,
         };
-        self.lines.insert(self.cursor + 1, text);
-        self.line_intonations.insert(self.cursor + 1, None);
+        self.lines.insert(self.cursor + 1, yanked.text);
+        self.line_intonations
+            .insert(self.cursor + 1, yanked.intonation);
         self.cursor += 1;
         // 折りたたみ時、カーソルが非表示行（行頭space）になる場合は最も近い表示行へ移動する
         self.normalize_cursor_for_fold();
@@ -102,12 +106,12 @@ impl App {
 
     pub async fn paste_above(&mut self) {
         self.reset_pending_prefixes();
-        let text = match &self.yank_buf {
-            Some(t) => t.clone(),
+        let yanked = match &self.yank_buf {
+            Some(line) => line.clone(),
             None => return,
         };
-        self.lines.insert(self.cursor, text);
-        self.line_intonations.insert(self.cursor, None);
+        self.lines.insert(self.cursor, yanked.text);
+        self.line_intonations.insert(self.cursor, yanked.intonation);
         // 折りたたみ時、カーソルが非表示行（行頭space）になる場合は最も近い表示行へ移動する
         self.normalize_cursor_for_fold();
         self.schedule_vpt_ensemble_members_sync();

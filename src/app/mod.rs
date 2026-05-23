@@ -56,6 +56,12 @@ pub type AllTabLines = Vec<Vec<String>>;
 pub type AllTabIntonations = Vec<LineIntonations>;
 pub type TabSlot = (Vec<String>, LineIntonations, usize, bool);
 
+#[derive(Clone)]
+pub struct YankedLine {
+    pub text: String,
+    pub intonation: Option<IntonationLineData>,
+}
+
 const VPT_ENSEMBLE_MEMBERS_SYNC_DEBOUNCE: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,7 +106,7 @@ pub struct App {
     pub pending_quote: bool,
     /// `"+`入力済み（クリップボードペーストのプレフィックス）
     pub pending_clipboard: bool,
-    pub yank_buf: Option<String>,
+    pub yank_buf: Option<YankedLine>,
     /// 折りたたみ中かどうか（行頭spaceのある行を非表示にする）
     pub folded: bool,
     /// fetchワーカーがAPI呼び出し中かどうか
