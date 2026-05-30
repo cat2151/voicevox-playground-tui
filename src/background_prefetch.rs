@@ -61,10 +61,7 @@ async fn run_background_prefetch(
 
         // prefetchリクエストを1件送信
         if fetch_tx
-            .send(FetchRequest {
-                text: text.clone(),
-                play_after: false,
-            })
+            .send(FetchRequest::prefetch(text.clone()))
             .await
             .is_err()
         {

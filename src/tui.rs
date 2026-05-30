@@ -100,12 +100,15 @@ pub async fn run(
         }
 
         if handle_post_startup_prepare(&mut post_startup_rx)? {
-            app.status_msg = String::from("ready");
+            app.status_msg = String::from("[startup] preparing initial voice...");
+            app.start_startup_voice_overlay();
+            terminal.draw(|f| ui::draw(f, app))?;
             app.init().await;
         }
 
         if !history_pending && !runtime_startup_pending && needs_init {
             app.status_msg = String::from("[startup] preparing mascot ensemble...");
+            app.start_startup_voice_overlay();
             terminal.draw(|f| ui::draw(f, app))?;
             post_startup_rx = Some(spawn_post_startup_prepare(app.lines.clone()));
             needs_init = false;
@@ -191,6 +194,7 @@ fn handle_startup_load(
                 loaded.all_intonations,
                 &loaded.session_state,
             );
+            app.start_startup_voice_overlay();
             *history_rx = None;
             Ok(true)
         }

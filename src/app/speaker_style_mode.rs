@@ -185,12 +185,10 @@ impl App {
             return;
         }
 
+        let summary = Self::voice_render_summary("preview", &display);
         let _ = self
             .fetch_tx
-            .send(FetchRequest {
-                text: synth_line,
-                play_after: true,
-            })
+            .send(FetchRequest::play(synth_line, summary))
             .await;
     }
 

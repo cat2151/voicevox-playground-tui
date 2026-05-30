@@ -5,9 +5,10 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
+use crate::app::App;
 use crate::mascot_render;
 
-use super::{centered_rect, BG, CYAN, FG, ORANGE};
+use super::{centered_rect, BG, CYAN, FG, ORANGE, YELLOW};
 
 fn top_overlay_rect(r: Rect, message: &str) -> Rect {
     let text_width = message
@@ -44,6 +45,43 @@ pub(super) fn render_startup_overlay(f: &mut Frame) {
         .title(Span::styled(
             " [STARTUP] ",
             Style::default().fg(CYAN).bold(),
+        ))
+        .style(Style::default().bg(BG));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    let paragraph = Paragraph::new(message)
+        .style(Style::default().fg(FG).bg(BG))
+        .wrap(Wrap { trim: false });
+    f.render_widget(paragraph, inner);
+}
+
+pub(super) fn render_voice_render_overlay(f: &mut Frame, app: &App) {
+    if f.area().width < 3 || f.area().height < 3 {
+        return;
+    }
+    if mascot_render::current_startup_overlay_message().is_some() {
+        return;
+    }
+    let Some(message) = app.voice_render_overlay_message() else {
+        return;
+    };
+    let is_startup = message.starts_with("[startup]");
+    let border_color = if is_startup { CYAN } else { YELLOW };
+    let title = if is_startup {
+        " [STARTUP] "
+    } else {
+        " [VOICE RENDER] "
+    };
+    let message = crate::spinner::decorate(&message);
+
+    let area = top_overlay_rect(f.area(), &message);
+    f.render_widget(Clear, area);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border_color))
+        .title(Span::styled(
+            title,
+            Style::default().fg(border_color).bold(),
         ))
         .style(Style::default().bg(BG));
     let inner = block.inner(area);

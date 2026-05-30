@@ -88,6 +88,7 @@ async fn main() -> Result<()> {
     let mut app = App::new(vec![String::new()]);
     if history_rx.is_some() || runtime_startup_rx.is_some() {
         app.status_msg = String::from("[startup] loading history...");
+        app.start_startup_voice_overlay();
     }
     engine_launcher::spawn_mascot_render_startup();
     mascot_render::spawn_mascot_mode_sync();

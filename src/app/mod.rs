@@ -20,7 +20,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tui_textarea::TextArea;
 
-use crate::fetch::{FetchRequest, IsFetching, WavCache};
+use crate::fetch::{FetchRequest, IsFetching, VoiceRenderOverlay, WavCache};
 use crate::player::{self, PlayRequest};
 use crate::tag;
 
@@ -111,6 +111,8 @@ pub struct App {
     pub folded: bool,
     /// fetchワーカーがAPI呼び出し中かどうか
     pub is_fetching: IsFetching,
+    /// 再生用の音声render requestが完了し、playキューへ渡されるまでの上部表示状態
+    pub voice_render_overlay: VoiceRenderOverlay,
     /// バックグラウンドprefetchタスクのハンドル（カーソル移動時にキャンセル）
     bg_prefetch_handle: Option<JoinHandle<()>>,
     /// vpt ensemble members更新を遅延送信する期限。
@@ -181,12 +183,14 @@ impl App {
         player::spawn_player(play_rx);
 
         let is_fetching: IsFetching = Arc::new(AtomicBool::new(false));
+        let voice_render_overlay = VoiceRenderOverlay::default();
         let (fetch_tx, fetch_rx) = mpsc::channel::<FetchRequest>(64);
         crate::fetch::spawn_worker(
             fetch_rx,
             Arc::clone(&cache),
             play_tx.clone(),
             Arc::clone(&is_fetching),
+            voice_render_overlay.clone(),
         );
 
         let cursor = if lines.is_empty() { 0 } else { lines.len() - 1 };
@@ -212,6 +216,7 @@ impl App {
             yank_buf: None,
             folded: false,
             is_fetching,
+            voice_render_overlay,
             bg_prefetch_handle: None,
             vpt_ensemble_members_sync_due: None,
             vpt_ensemble_members_sync_lines: None,
@@ -244,6 +249,17 @@ impl App {
 
     pub async fn init(&mut self) {
         let idx = self.cursor;
+        if self
+            .lines
+            .get(idx)
+            .is_none_or(|line| line.trim().is_empty())
+        {
+            self.voice_render_overlay.clear();
+            self.status_msg = String::from("ready");
+            self.restart_background_prefetch();
+            return;
+        }
+        self.start_startup_voice_overlay();
         self.fetch_and_play(idx).await;
         self.restart_background_prefetch();
     }
@@ -262,6 +278,10 @@ impl App {
             .take()
             .unwrap_or_else(|| self.lines.clone());
         crate::mascot_render::sync_vpt_ensemble_members(lines).await;
+    }
+
+    pub(crate) fn voice_render_overlay_message(&self) -> Option<String> {
+        self.voice_render_overlay.current_message()
     }
 
     fn schedule_vpt_ensemble_members_sync(&mut self) {

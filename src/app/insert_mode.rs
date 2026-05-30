@@ -124,13 +124,7 @@ impl App {
         if text.trim().is_empty() {
             return;
         }
-        let _ = self
-            .fetch_tx
-            .send(FetchRequest {
-                text,
-                play_after: false,
-            })
-            .await;
+        let _ = self.fetch_tx.send(FetchRequest::prefetch(text)).await;
     }
 
     /// ステータス表示文字列: 待機中の処理にはスピナーを付ける。

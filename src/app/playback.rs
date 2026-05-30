@@ -9,6 +9,41 @@ use crate::player::PlayRequest;
 use super::{utils, App, IntonationLineData};
 
 impl App {
+    pub(crate) fn start_startup_voice_overlay(&self) {
+        let message = self
+            .lines
+            .get(self.cursor)
+            .map(|line| line.trim_start())
+            .filter(|line| !line.trim().is_empty())
+            .map(|text| {
+                Self::voice_render_summary(&format!("[startup] line {}", self.cursor + 1), text)
+            })
+            .unwrap_or_else(|| String::from("[startup] 初回音声の準備中..."));
+        self.voice_render_overlay.start(message);
+    }
+
+    pub(crate) fn voice_render_summary(label: &str, text: &str) -> String {
+        format!(
+            "{label} render待ち / play予約: {}",
+            Self::voice_render_text_summary(text)
+        )
+    }
+
+    fn voice_render_line_summary(index: usize, text: &str) -> String {
+        Self::voice_render_summary(&format!("line {}", index + 1), text)
+    }
+
+    fn voice_render_text_summary(text: &str) -> String {
+        const MAX_CHARS: usize = 48;
+        let mut chars = text.chars();
+        let summary: String = chars.by_ref().take(MAX_CHARS).collect();
+        if chars.next().is_some() {
+            format!("{summary}...")
+        } else {
+            summary
+        }
+    }
+
     /// イントネーションキャッシュキーを生成する。
     /// シリアライズに失敗した場合は None を返す（キャッシュをスキップする）。
     pub(crate) fn intonation_cache_key(
@@ -39,12 +74,17 @@ impl App {
             // query が Null の場合は history.txt から復元した pitches-only 状態を示す。
             // この場合は audio_query をAPIから遅延取得し、完全なIntonationLineDataに昇格させてから再生する。
             let data = if data.query.is_null() {
+                let voice_render_generation = self
+                    .voice_render_overlay
+                    .start(Self::voice_render_line_summary(index, &text));
                 match self.resolve_pitches_only(index, &data).await {
                     Some(resolved) => resolved,
                     None => {
                         // API取得に失敗した場合は通常の合成にフォールスルー
                         let cached = { self.cache.lock().unwrap().get(&text).cloned() };
                         if let Some(wav) = cached {
+                            self.voice_render_overlay
+                                .clear_if_current(voice_render_generation);
                             let _ = self
                                 .play_tx
                                 .send(PlayRequest {
@@ -54,13 +94,16 @@ impl App {
                                 .await;
                             self.status_msg = format!("[♪ cached] line {}", index + 1);
                         } else {
-                            let _ = self
+                            let summary = Self::voice_render_line_summary(index, &text);
+                            if self
                                 .fetch_tx
-                                .send(FetchRequest {
-                                    text,
-                                    play_after: true,
-                                })
-                                .await;
+                                .send(FetchRequest::play(text, summary))
+                                .await
+                                .is_err()
+                            {
+                                self.voice_render_overlay
+                                    .clear_if_current(voice_render_generation);
+                            }
                             self.status_msg = format!("[fetching...] line {}", index + 1);
                         }
                         return;
@@ -73,6 +116,7 @@ impl App {
             if let Some(cache_key) = Self::intonation_cache_key(data.speaker_id, &data.query) {
                 let cached = { self.cache.lock().unwrap().get(&cache_key).cloned() };
                 if let Some(wav) = cached {
+                    self.voice_render_overlay.clear();
                     let _ = self
                         .play_tx
                         .send(PlayRequest {
@@ -91,6 +135,7 @@ impl App {
 
         let cached = { self.cache.lock().unwrap().get(&text).cloned() };
         if let Some(wav) = cached {
+            self.voice_render_overlay.clear();
             let _ = self
                 .play_tx
                 .send(PlayRequest {
@@ -100,13 +145,15 @@ impl App {
                 .await;
             self.status_msg = format!("[♪ cached] line {}", index + 1);
         } else {
-            let _ = self
+            let summary = Self::voice_render_line_summary(index, &text);
+            if self
                 .fetch_tx
-                .send(FetchRequest {
-                    text,
-                    play_after: true,
-                })
-                .await;
+                .send(FetchRequest::play(text, summary))
+                .await
+                .is_err()
+            {
+                self.voice_render_overlay.clear();
+            }
             self.status_msg = format!("[fetching...] line {}", index + 1);
         }
     }
@@ -164,10 +211,14 @@ impl App {
     ) {
         if let Some(h) = self.intonation_play_handle.take() {
             h.abort();
+            self.voice_render_overlay.clear();
         }
         let play_tx = self.play_tx.clone();
         let cache = Arc::clone(&self.cache);
         let cache_key = Self::intonation_cache_key(speaker_id, &query);
+        let voice_render_overlay = self.voice_render_overlay.clone();
+        let voice_render_generation =
+            voice_render_overlay.start(Self::voice_render_summary("intonation", &source_text));
         self.intonation_play_handle = Some(tokio::spawn(async move {
             if let Ok(wav) = crate::voicevox::synthesize_with_query(&query, speaker_id).await {
                 if let Some(key) = cache_key {
@@ -175,6 +226,7 @@ impl App {
                 }
                 let _ = play_tx.send(PlayRequest { wav, source_text }).await;
             }
+            voice_render_overlay.clear_if_current(voice_render_generation);
         }));
     }
 

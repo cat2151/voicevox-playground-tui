@@ -295,6 +295,7 @@ impl App {
                 // in-flight の合成タスクがあれば abort して遅延再生を防ぐ
                 if let Some(h) = self.intonation_play_handle.take() {
                     h.abort();
+                    self.voice_render_overlay.clear();
                 }
                 let _ = self
                     .play_tx
