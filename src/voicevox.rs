@@ -85,6 +85,23 @@ pub fn set_mora_pitches(query: &mut serde_json::Value, pitches: &[f64]) {
     }
 }
 
+/// 単一speaker/styleの行についてaudio_queryを取得し、保存済みpitch値を適用する。
+pub async fn get_audio_query_with_pitches(
+    line: &str,
+    pitches: &[f64],
+) -> Result<(serde_json::Value, u32)> {
+    let mut segments = tag::parse_line(line);
+    if segments.len() != 1 {
+        return Err(anyhow::anyhow!(
+            "イントネーション付き音声は単一speaker/styleの行だけ合成できます"
+        ));
+    }
+    let (text, ctx) = segments.swap_remove(0);
+    let mut query = get_audio_query(&text, ctx.speaker_id).await?;
+    set_mora_pitches(&mut query, pitches);
+    Ok((query, ctx.speaker_id))
+}
+
 pub async fn synthesize(text: &str, speaker_id: u32) -> Result<Vec<u8>> {
     let table = speakers::get();
     let base_url = table

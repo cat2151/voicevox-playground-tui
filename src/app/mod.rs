@@ -91,7 +91,7 @@ pub struct App {
     pub cursor: usize,
     pub textarea: TextArea<'static>,
     pub mode: Mode,
-    /// キャッシュキー = 行文字列（インデックスではない）
+    /// キャッシュキー = 合成入力（通常行は行文字列、イントネーション編集済み行は専用キー）
     pub cache: WavCache,
     pub status_msg: String,
     pub fetch_tx: mpsc::Sender<FetchRequest>,

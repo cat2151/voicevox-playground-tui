@@ -48,23 +48,12 @@ pub(super) fn render_lines(f: &mut Frame, app: &mut App, area: Rect) {
         .iter()
         .map(|&i| {
             let line = &app.lines[i];
-            // イントネーション編集済みの行用のキャッシュキーはロック取得前に計算しておく
-            let intonation_key = app
-                .line_intonations
-                .get(i)
-                .and_then(|d| d.as_ref())
-                .filter(|d| !d.query.is_null())
-                .and_then(|d| App::intonation_cache_key(d.speaker_id, &d.query));
+            // history由来のpitches-only状態も含め、再生時と同じキャッシュキーを使う。
+            let cache_key =
+                App::line_cache_key(line, app.line_intonations.get(i).and_then(|d| d.as_ref()));
             let cached_mark = {
-                // query が非 Null の場合はイントネーション用キャッシュキーのみを確認する。
-                // query が Null（またはイントネーション情報なし）の場合はプレーンテキストキーを確認する。
                 let cache = app.cache.lock().unwrap();
-                let is_cached = if let Some(ref key) = intonation_key {
-                    cache.contains_key(key)
-                } else {
-                    // 折りたたみ用の行頭spaceはcacheキーから除外する（fetch_and_playと合わせる）
-                    cache.contains_key(line.trim_start())
-                };
+                let is_cached = cache.contains_key(&cache_key);
                 if is_cached {
                     "♪ "
                 } else {

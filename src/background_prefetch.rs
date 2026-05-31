@@ -15,18 +15,18 @@ use crate::fetch::{FetchRequest, IsFetching, WavCache};
 /// バックグラウンドprefetchタスクを起動する。
 /// 返されたJoinHandleをabort()することで中断できる。
 ///
-/// - `cursor_cache_key`: 現在行のキャッシュキー（通常行はテキスト、イントネーション編集済み行は"intonation:{speaker_id}:{query_json}"）
-/// - `target_texts`:     prefetch対象テキストのリスト（カーソル位置から近い順）
+/// - `cursor_cache_key`: 現在行のキャッシュキー（通常行はテキスト、イントネーション編集済み行は"intonation:..."）
+/// - `targets`:          prefetch対象リクエストのリスト（カーソル位置から近い順）
 pub fn spawn_background_prefetch(
     cursor_cache_key: String,
-    target_texts: Vec<String>,
+    targets: Vec<FetchRequest>,
     cache: WavCache,
     is_fetching: IsFetching,
     fetch_tx: mpsc::Sender<FetchRequest>,
 ) -> JoinHandle<()> {
     tokio::spawn(run_background_prefetch(
         cursor_cache_key,
-        target_texts,
+        targets,
         cache,
         is_fetching,
         fetch_tx,
@@ -35,7 +35,7 @@ pub fn spawn_background_prefetch(
 
 async fn run_background_prefetch(
     cursor_cache_key: String,
-    target_texts: Vec<String>,
+    targets: Vec<FetchRequest>,
     cache: WavCache,
     is_fetching: IsFetching,
     fetch_tx: mpsc::Sender<FetchRequest>,
@@ -51,25 +51,24 @@ async fn run_background_prefetch(
         wait_for_cached(&cache, &cursor_cache_key, Duration::from_secs(30)).await;
     }
 
-    for text in target_texts {
-        if text.trim().is_empty() {
+    for request in targets {
+        if request.text.trim().is_empty() {
             continue;
         }
-        if cache.lock().unwrap().contains_key(&text) {
+        let Some(cache_key) = request.cache_key() else {
+            continue;
+        };
+        if cache.lock().unwrap().contains_key(&cache_key) {
             continue;
         }
 
         // prefetchリクエストを1件送信
-        if fetch_tx
-            .send(FetchRequest::prefetch(text.clone()))
-            .await
-            .is_err()
-        {
+        if fetch_tx.send(request).await.is_err() {
             break;
         }
 
         // cacheに格納されるまで待機（中断された場合はタイムアウトで次へ）
-        wait_for_cached(&cache, &text, Duration::from_secs(30)).await;
+        wait_for_cached(&cache, &cache_key, Duration::from_secs(30)).await;
     }
 }
 

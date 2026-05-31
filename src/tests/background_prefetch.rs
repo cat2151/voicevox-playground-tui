@@ -3,6 +3,13 @@ use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
+fn prefetch_targets(texts: &[&str]) -> Vec<FetchRequest> {
+    texts
+        .iter()
+        .map(|text| FetchRequest::prefetch((*text).to_owned()))
+        .collect()
+}
+
 #[test]
 fn compute_prefetch_targets_empty() {
     let targets = compute_prefetch_targets(0, 24, &[]);
@@ -66,7 +73,7 @@ async fn background_prefetch_skips_all_cached_lines() {
 
     let handle = spawn_background_prefetch(
         "line1".into(),
-        vec!["line0".into(), "line2".into()],
+        prefetch_targets(&["line0", "line2"]),
         Arc::clone(&cache),
         Arc::clone(&is_fetching),
         tx,
@@ -92,7 +99,7 @@ async fn background_prefetch_waits_until_is_fetching_false() {
     let is_fetching_clone = Arc::clone(&is_fetching);
     let _handle = spawn_background_prefetch(
         "line1".into(),
-        vec!["line0".into(), "line2".into()],
+        prefetch_targets(&["line0", "line2"]),
         Arc::clone(&cache),
         Arc::clone(&is_fetching),
         tx,
@@ -127,12 +134,7 @@ async fn background_prefetch_sends_one_request_at_a_time() {
     let cache_clone = Arc::clone(&cache);
     let handle = spawn_background_prefetch(
         "line2".into(),
-        vec![
-            "line1".into(),
-            "line3".into(),
-            "line0".into(),
-            "line4".into(),
-        ],
+        prefetch_targets(&["line1", "line3", "line0", "line4"]),
         Arc::clone(&cache),
         Arc::clone(&is_fetching),
         tx,

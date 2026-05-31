@@ -1,6 +1,6 @@
 //! VOICEVOXへの非同期fetchワーカー。
-//! キャッシュキーは行インデックスではなく行文字列。
-//! 同じ文字列なら同じwavが返るため、行の移動・編集後の巻き戻しでも正しく動く。
+//! キャッシュキーは行インデックスではなく合成入力から生成する。
+//! 通常行は行文字列、イントネーション編集済み行はqueryまたは保存済みpitchesを使う。
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -9,9 +9,9 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
 use crate::player::PlayRequest;
-use crate::voicevox;
+use crate::{speakers, tag, voicevox};
 
-/// キャッシュ型エイリアス: 行文字列 → WAV bytes
+/// キャッシュ型エイリアス: 合成入力キー → WAV bytes
 pub type WavCache = Arc<Mutex<HashMap<String, Vec<u8>>>>;
 
 /// フェッチ中フラグ型エイリアス
@@ -78,6 +78,14 @@ pub struct FetchRequest {
     pub text: String,
     pub play_after: bool,
     pub summary: Option<String>,
+    intonation: Option<IntonationPrefetch>,
+}
+
+#[derive(Debug)]
+struct IntonationPrefetch {
+    query: serde_json::Value,
+    pitches: Vec<f64>,
+    speaker_id: u32,
 }
 
 impl FetchRequest {
@@ -86,6 +94,25 @@ impl FetchRequest {
             text,
             play_after: false,
             summary: None,
+            intonation: None,
+        }
+    }
+
+    pub fn prefetch_intonation(
+        text: String,
+        query: serde_json::Value,
+        pitches: Vec<f64>,
+        speaker_id: u32,
+    ) -> Self {
+        Self {
+            text,
+            play_after: false,
+            summary: None,
+            intonation: Some(IntonationPrefetch {
+                query,
+                pitches,
+                speaker_id,
+            }),
         }
     }
 
@@ -94,6 +121,7 @@ impl FetchRequest {
             text,
             play_after: true,
             summary: Some(summary.into()),
+            intonation: None,
         }
     }
 
@@ -102,6 +130,48 @@ impl FetchRequest {
             .clone()
             .unwrap_or_else(|| String::from("voice render request中 (play予約済み)"))
     }
+
+    pub(crate) fn cache_key(&self) -> Option<String> {
+        match &self.intonation {
+            Some(intonation) if intonation.query.is_null() => {
+                pitches_only_intonation_cache_key(&self.text, &intonation.pitches)
+            }
+            Some(intonation) => intonation_cache_key(intonation.speaker_id, &intonation.query),
+            None => Some(self.text.clone()),
+        }
+    }
+
+    async fn synthesize(&self) -> anyhow::Result<Vec<u8>> {
+        match &self.intonation {
+            Some(intonation) if intonation.query.is_null() => {
+                let (query, speaker_id) =
+                    voicevox::get_audio_query_with_pitches(&self.text, &intonation.pitches).await?;
+                voicevox::synthesize_with_query(&query, speaker_id).await
+            }
+            Some(intonation) => {
+                voicevox::synthesize_with_query(&intonation.query, intonation.speaker_id).await
+            }
+            None => voicevox::synthesize_line(&self.text).await,
+        }
+    }
+}
+
+pub fn intonation_cache_key(speaker_id: u32, query: &serde_json::Value) -> Option<String> {
+    serde_json::to_string(query)
+        .ok()
+        .map(|query| format!("intonation:{speaker_id}:{query}"))
+}
+
+pub fn pitches_only_intonation_cache_key(text: &str, pitches: &[f64]) -> Option<String> {
+    speakers::try_get()?;
+    let mut segments = tag::parse_line(text);
+    if segments.len() != 1 {
+        return None;
+    }
+    let (segment_text, ctx) = segments.swap_remove(0);
+    serde_json::to_string(&(ctx.speaker_id, segment_text, pitches))
+        .ok()
+        .map(|payload| format!("intonation:pitches:{payload}"))
 }
 
 pub fn spawn_worker(
@@ -167,7 +237,10 @@ async fn worker_loop(
             continue;
         }
 
-        let cached: Option<Vec<u8>> = { cache.lock().unwrap().get(&req.text).cloned() };
+        let Some(cache_key) = req.cache_key() else {
+            continue;
+        };
+        let cached: Option<Vec<u8>> = { cache.lock().unwrap().get(&cache_key).cloned() };
         if let Some(wav) = cached {
             if req.play_after {
                 voice_render_overlay.clear();
@@ -197,13 +270,10 @@ async fn worker_loop(
 
         current_is_play = req.play_after;
         current_handle = Some(tokio::spawn(async move {
-            match voicevox::synthesize_line(&req.text).await {
+            match req.synthesize().await {
                 Ok(wav) => {
                     {
-                        cache_clone
-                            .lock()
-                            .unwrap()
-                            .insert(req.text.clone(), wav.clone());
+                        cache_clone.lock().unwrap().insert(cache_key, wav.clone());
                     }
                     if req.play_after {
                         let _ = play_tx_clone

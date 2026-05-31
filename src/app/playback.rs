@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use crate::background_prefetch;
-use crate::fetch::FetchRequest;
+use crate::fetch::{self, FetchRequest};
 use crate::player::PlayRequest;
 
 use super::{utils, App, IntonationLineData};
@@ -50,9 +50,44 @@ impl App {
         speaker_id: u32,
         query: &serde_json::Value,
     ) -> Option<String> {
-        serde_json::to_string(query)
-            .ok()
-            .map(|q| format!("intonation:{}:{}", speaker_id, q))
+        fetch::intonation_cache_key(speaker_id, query)
+    }
+
+    /// 行の再生時に参照するキャッシュキーを返す。
+    /// history由来のpitches-only状態では、queryを再取得する前でも一致する安定キーを使う。
+    pub(crate) fn line_cache_key(line: &str, intonation: Option<&IntonationLineData>) -> String {
+        let text = line.trim_start();
+        match intonation {
+            Some(data) if data.query.is_null() => {
+                fetch::pitches_only_intonation_cache_key(text, &data.pitches)
+                    .unwrap_or_else(|| text.to_owned())
+            }
+            Some(data) => Self::intonation_cache_key(data.speaker_id, &data.query)
+                .unwrap_or_else(|| text.to_owned()),
+            None => text.to_owned(),
+        }
+    }
+
+    fn background_prefetch_request(&self, index: usize) -> FetchRequest {
+        let text = self.lines[index].trim_start().to_owned();
+        let Some(data) = self
+            .line_intonations
+            .get(index)
+            .and_then(|data| data.as_ref())
+        else {
+            return FetchRequest::prefetch(text);
+        };
+        let request = FetchRequest::prefetch_intonation(
+            text.clone(),
+            data.query.clone(),
+            data.pitches.clone(),
+            data.speaker_id,
+        );
+        if request.cache_key().is_some() {
+            request
+        } else {
+            FetchRequest::prefetch(text)
+        }
     }
 
     /// 指定行の内容を取得し、キャッシュ済み音声または fetch/intonation 合成結果を再生する。
@@ -74,6 +109,20 @@ impl App {
             // query が Null の場合は history.txt から復元した pitches-only 状態を示す。
             // この場合は audio_query をAPIから遅延取得し、完全なIntonationLineDataに昇格させてから再生する。
             let data = if data.query.is_null() {
+                let cached = fetch::pitches_only_intonation_cache_key(&text, &data.pitches)
+                    .and_then(|cache_key| self.cache.lock().unwrap().get(&cache_key).cloned());
+                if let Some(wav) = cached {
+                    self.voice_render_overlay.clear();
+                    let _ = self
+                        .play_tx
+                        .send(PlayRequest {
+                            wav,
+                            source_text: text.clone(),
+                        })
+                        .await;
+                    self.status_msg = format!("[♬ cached] line {}", index + 1);
+                    return;
+                }
                 let voice_render_generation = self
                     .voice_render_overlay
                     .start(Self::voice_render_line_summary(index, &text));
@@ -171,16 +220,9 @@ impl App {
         if line.trim().is_empty() {
             return None;
         }
-        let mut segments = crate::tag::parse_line(&line);
-        if segments.len() != 1 {
-            return None;
-        }
-        let (seg_text, ctx) = segments.swap_remove(0);
-        let speaker_id = ctx.speaker_id;
-        match crate::voicevox::get_audio_query(&seg_text, speaker_id).await {
-            Ok(mut query) => {
-                // 保存済みpitchesを適用した後、queryから再抽出して長さをモーラ数に揃える
-                crate::voicevox::set_mora_pitches(&mut query, &data.pitches);
+        match crate::voicevox::get_audio_query_with_pitches(&line, &data.pitches).await {
+            Ok((query, speaker_id)) => {
+                // pitches適用後にqueryから再抽出して長さをモーラ数に揃える
                 let (mora_texts, applied_pitches) = crate::voicevox::extract_mora_data(&query);
                 if mora_texts.is_empty() {
                     return None;
@@ -249,23 +291,20 @@ impl App {
         // カーソル行がイントネーション編集済みの場合はイントネーション用のキャッシュキーを使う。
         // 通常の行テキストをキーとすると、イントネーション合成結果がキャッシュされないため
         // wait_for_cachedが30秒タイムアウトするまで他の行のprefetchが始まらない。
-        let cursor_cache_key = {
-            let intonation_key = self
-                .line_intonations
-                .get(self.cursor)
-                .and_then(|d| d.as_ref())
-                .filter(|d| !d.query.is_null())
-                .and_then(|d| Self::intonation_cache_key(d.speaker_id, &d.query));
-            // 折りたたみ用の行頭spaceはcacheキーから除外する
-            intonation_key.unwrap_or_else(|| {
-                self.lines
-                    .get(self.cursor)
-                    .map(|l| l.trim_start().to_owned())
-                    .unwrap_or_default()
+        let cursor_cache_key = self
+            .lines
+            .get(self.cursor)
+            .map(|line| {
+                Self::line_cache_key(
+                    line,
+                    self.line_intonations
+                        .get(self.cursor)
+                        .and_then(|data| data.as_ref()),
+                )
             })
-        };
+            .unwrap_or_default();
         // 折りたたみ時は表示行のみをprefetch対象とする
-        let target_texts: Vec<String> = if self.folded {
+        let target_indices: Vec<usize> = if self.folded {
             let visible_indices = self.visible_line_indices();
             let visible_texts: Vec<String> = visible_indices
                 .iter()
@@ -278,22 +317,22 @@ impl App {
                 &visible_texts,
             )
             .into_iter()
-            .map(|idx| visible_texts[idx].clone())
+            .map(|idx| visible_indices[idx])
             .collect()
         } else {
-            // 全行ではなく表示ウィンドウ内の対象行のみをcloneして渡す
             background_prefetch::compute_prefetch_targets(
                 self.cursor,
                 self.visible_lines,
                 &self.lines,
             )
-            .into_iter()
-            .map(|idx| self.lines[idx].trim_start().to_owned())
-            .collect()
         };
+        let targets = target_indices
+            .into_iter()
+            .map(|index| self.background_prefetch_request(index))
+            .collect();
         self.bg_prefetch_handle = Some(background_prefetch::spawn_background_prefetch(
             cursor_cache_key,
-            target_texts,
+            targets,
             Arc::clone(&self.cache),
             Arc::clone(&self.is_fetching),
             self.fetch_tx.clone(),
