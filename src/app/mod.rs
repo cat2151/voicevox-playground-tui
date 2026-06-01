@@ -175,7 +175,7 @@ pub struct App {
 
 impl App {
     pub fn new(lines: Vec<String>) -> Self {
-        let lines = utils::compress_trailing_empty(lines);
+        let lines = utils::ensure_nonempty_lines(lines);
         let line_intonations = vec![None; lines.len()];
         let cache: WavCache = Arc::new(Mutex::new(HashMap::new()));
 

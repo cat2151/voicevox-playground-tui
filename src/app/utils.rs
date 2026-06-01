@@ -2,14 +2,8 @@
 
 use tui_textarea::TextArea;
 
-pub(super) fn compress_trailing_empty(mut lines: Vec<String>) -> Vec<String> {
-    while lines.len() > 1 && lines.last().map(|l| l.trim().is_empty()).unwrap_or(false) {
-        lines.pop();
-    }
+pub(super) fn ensure_nonempty_lines(mut lines: Vec<String>) -> Vec<String> {
     if lines.is_empty() {
-        lines.push(String::new());
-    }
-    if lines.last().map(|l| !l.trim().is_empty()).unwrap_or(false) {
         lines.push(String::new());
     }
     lines

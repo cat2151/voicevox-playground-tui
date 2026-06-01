@@ -98,8 +98,8 @@ impl App {
                 self.line_intonations.insert(self.cursor + 1 + i, None);
             }
         }
-        self.lines = super::utils::compress_trailing_empty(std::mem::take(&mut self.lines));
-        // line_intonations の長さを lines に合わせる（末尾の空行は常にイントネーションなし）
+        self.lines = super::utils::ensure_nonempty_lines(std::mem::take(&mut self.lines));
+        // line_intonations の長さを lines に合わせる
         self.line_intonations.resize(self.lines.len(), None);
         if self.cursor >= self.lines.len() {
             self.cursor = self.lines.len().saturating_sub(1);
@@ -118,7 +118,6 @@ impl App {
         if self.cursor < lines.len() {
             let split_lines = tag::split_by_ctx_change(&text);
             lines.splice(self.cursor..=self.cursor, split_lines);
-            lines = super::utils::compress_trailing_empty(lines);
             self.schedule_vpt_ensemble_members_sync_for_lines(lines);
         }
         if text.trim().is_empty() {

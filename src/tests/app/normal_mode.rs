@@ -44,6 +44,16 @@ async fn take_count_zero_returns_one() {
 }
 
 #[tokio::test]
+async fn delete_trailing_empty_line_keeps_it_deleted() {
+    let mut app = App::new(vec!["a".to_string(), String::new()]);
+    app.cursor = 1;
+
+    app.delete_current_line().await;
+
+    assert_eq!(app.lines, vec!["a"]);
+}
+
+#[tokio::test]
 async fn delete_then_paste_below_restores_intonation() {
     let mut app = make_app();
     app.cursor = 1;
@@ -52,7 +62,7 @@ async fn delete_then_paste_below_restores_intonation() {
     app.delete_current_line().await;
     app.paste_below().await;
 
-    assert_eq!(app.lines, vec!["a", "c", "b", ""]);
+    assert_eq!(app.lines, vec!["a", "c", "b"]);
     let restored = app.line_intonations[2]
         .as_ref()
         .expect("p should restore the yanked intonation");
@@ -69,7 +79,7 @@ async fn delete_then_paste_above_restores_intonation() {
     app.delete_current_line().await;
     app.paste_above().await;
 
-    assert_eq!(app.lines, vec!["a", "b", "c", ""]);
+    assert_eq!(app.lines, vec!["a", "b", "c"]);
     let restored = app.line_intonations[1]
         .as_ref()
         .expect("P should restore the yanked intonation");

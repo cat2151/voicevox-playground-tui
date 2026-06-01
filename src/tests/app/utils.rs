@@ -1,60 +1,56 @@
 use super::*;
 
-// ── compress_trailing_empty ──────────────────────────────────────────────
+// ── ensure_nonempty_lines ────────────────────────────────────────────────
 
 #[test]
-fn compress_empty_input_returns_single_empty_line() {
-    let result = compress_trailing_empty(vec![]);
+fn ensure_empty_input_returns_single_empty_line() {
+    let result = ensure_nonempty_lines(vec![]);
     assert_eq!(result, vec![""]);
 }
 
 #[test]
-fn compress_single_non_empty_line_appends_trailing_empty() {
-    let result = compress_trailing_empty(vec!["hello".to_string()]);
-    assert_eq!(result, vec!["hello", ""]);
+fn ensure_single_non_empty_line_unchanged() {
+    let result = ensure_nonempty_lines(vec!["hello".to_string()]);
+    assert_eq!(result, vec!["hello"]);
 }
 
 #[test]
-fn compress_single_empty_line_unchanged() {
-    // 要素が1つだけの空行は変更なし（ポップしない）
-    let result = compress_trailing_empty(vec!["".to_string()]);
+fn ensure_single_empty_line_unchanged() {
+    let result = ensure_nonempty_lines(vec!["".to_string()]);
     assert_eq!(result, vec![""]);
 }
 
 #[test]
-fn compress_multiple_trailing_empty_lines_collapsed_to_one() {
+fn ensure_multiple_trailing_empty_lines_unchanged() {
     let input = vec![
         "hello".to_string(),
         "".to_string(),
         "".to_string(),
         "".to_string(),
     ];
-    let result = compress_trailing_empty(input);
-    assert_eq!(result, vec!["hello", ""]);
+    let result = ensure_nonempty_lines(input);
+    assert_eq!(result, vec!["hello", "", "", ""]);
 }
 
 #[test]
-fn compress_no_trailing_empty_appends_one() {
-    // 末尾が非空行ならトレイリング空行を1つ追加する
+fn ensure_no_trailing_empty_unchanged() {
     let input = vec!["hello".to_string(), "world".to_string()];
-    let result = compress_trailing_empty(input);
-    assert_eq!(result, vec!["hello", "world", ""]);
+    let result = ensure_nonempty_lines(input);
+    assert_eq!(result, vec!["hello", "world"]);
 }
 
 #[test]
-fn compress_preserves_internal_empty_lines() {
+fn ensure_preserves_internal_empty_lines() {
     let input = vec!["a".to_string(), "".to_string(), "b".to_string()];
-    let result = compress_trailing_empty(input);
-    // 末尾が非空なので空行が追加される
-    assert_eq!(result, vec!["a", "", "b", ""]);
+    let result = ensure_nonempty_lines(input);
+    assert_eq!(result, vec!["a", "", "b"]);
 }
 
 #[test]
-fn compress_whitespace_only_line_is_treated_as_empty() {
-    // " " (空白のみ) も空行扱いでポップされる
+fn ensure_preserves_whitespace_only_lines() {
     let input = vec!["hello".to_string(), "  ".to_string(), "   ".to_string()];
-    let result = compress_trailing_empty(input);
-    assert_eq!(result, vec!["hello", ""]);
+    let result = ensure_nonempty_lines(input);
+    assert_eq!(result, vec!["hello", "  ", "   "]);
 }
 
 // ── nearest_vis_pos ───────────────────────────────────────────────────────

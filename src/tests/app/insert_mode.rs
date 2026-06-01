@@ -75,6 +75,18 @@ async fn commit_insert_clears_intonation_when_text_content_changes() {
 }
 
 #[tokio::test]
+async fn commit_insert_does_not_append_trailing_empty_line() {
+    setup();
+    let mut app = make_app_with_line("ずんだもん");
+    app.cursor = 0;
+    app.textarea = super::super::utils::make_textarea("めたん".to_string());
+
+    app.commit_insert().await;
+
+    assert_eq!(app.lines, vec!["めたん"]);
+}
+
+#[tokio::test]
 async fn status_display_adds_spinner_while_fetching() {
     setup();
     let mut app = make_app_with_line("ずんだもん");

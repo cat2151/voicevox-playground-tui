@@ -53,3 +53,22 @@ async fn apply_loaded_history_restores_tabs_and_session_state() {
     assert!(app.command_buf.is_empty());
     assert!(app.help_key_buf.is_empty());
 }
+
+#[tokio::test]
+async fn apply_loaded_history_does_not_append_trailing_empty_line() {
+    let mut app = App::new(vec![String::new()]);
+    let all_lines = vec![vec![String::from("line")]];
+    let all_intonations = vec![vec![None]];
+    let session_state = crate::history::SessionState {
+        active_tab: 0,
+        tabs: vec![crate::history::TabSessionState {
+            cursor: 0,
+            folded: false,
+        }],
+    };
+
+    app.apply_loaded_history(all_lines, all_intonations, &session_state);
+
+    assert_eq!(app.lines, vec!["line"]);
+    assert_eq!(app.cursor, 0);
+}

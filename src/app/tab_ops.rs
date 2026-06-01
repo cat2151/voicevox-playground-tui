@@ -193,7 +193,7 @@ impl App {
         }
         let mut all_intonations = all_intonations;
 
-        self.lines = super::utils::compress_trailing_empty(all_lines.remove(0));
+        self.lines = super::utils::ensure_nonempty_lines(all_lines.remove(0));
         let first_intonations = if all_intonations.is_empty() {
             None
         } else {
@@ -228,7 +228,7 @@ impl App {
         self.esc_hint_until = None;
 
         for (i, extra_lines) in all_lines.into_iter().enumerate() {
-            let extra_lines = super::utils::compress_trailing_empty(extra_lines);
+            let extra_lines = super::utils::ensure_nonempty_lines(extra_lines);
             let extra_intonations =
                 normalize_loaded_intonations(extra_lines.len(), all_intonations.get(i).cloned());
             let extra_cursor = extra_lines.len().saturating_sub(1);
